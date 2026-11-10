@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.venv/
+
+# IDE / editors
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Logs
+logs/*.log
+*.log
+
+# Config secrets
+.env
+.env.local
+.env.*.local
+config/agent_config.json
+
+# Network inventory
+network_inventory.json
+
+# Temp deploy artifacts
+src/infrastructure_agent/deployment/temp/
+
+# Distribution
+dist/
+build/
+*.egg-info/
+
+# Claude config (per-user, not part of project)
+.claude/
+
+# Special device files (not trackable in git)
+.mcp.json

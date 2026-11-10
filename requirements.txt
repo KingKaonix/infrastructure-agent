@@ -1,0 +1,10 @@
+# Core libraries
+asyncssh
+python-nmap
+ai
+fastapi
+uvicorn
+python-dotenv
+
+# Optional / additional
+python-jose[cryptography]

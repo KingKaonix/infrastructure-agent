@@ -161,10 +161,17 @@ async def async_main(argv: Sequence[str] | None = None) -> int:
                             )
                         )
         else:
-            background = [
-                asyncio.create_task(discovery.start_discovery()),
-                asyncio.create_task(optimizer.start_periodic_checks()),
-            ]
+            from infrastructure_agent.autonomy import AutonomousSupervisor
+            from infrastructure_agent.ai_layer.ai_reasoning import AIReasoningLayer
+
+            supervisor = AutonomousSupervisor(
+                discovery=discovery,
+                optimizer=optimizer,
+                ai_layer=AIReasoningLayer(),
+                deployer=deployer,
+                ssh=ssh,
+            )
+            background = [asyncio.create_task(supervisor.run())]
             print("Infrastructure Agent daemon running. Press Ctrl-C to stop.")
             await asyncio.gather(*background)
     finally:

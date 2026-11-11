@@ -47,6 +47,7 @@ class AgentConfig:
             "logging": {"level": "INFO", "log_file": "logs/agent.log"},
             "ai": {"provider": "openai_compatible", "base_url": "", "model": ""},
             "telegram": {"allowed_chat_ids": []},
+            "autonomy": {"enabled": True, "review_interval": 1800},
         }
 
     def load_config(self, *, create: bool = False) -> None:

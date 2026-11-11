@@ -13,6 +13,7 @@ Infrastructure Agent is a Python 3.12+ CLI for safely managing Docker workloads 
 - Repository analysis and Docker deployment with unique remote directories, source checkout, build/start health checks, and rollback on failure.
 - LAN discovery with explicit ranges, concurrency limits, per-host timeouts, cancellation, and bounded inventory behavior.
 - Read-only-by-default performance observations using machine-readable metrics. Cleanup is recommendation-only unless explicitly approved.
+- Autonomous supervisor cycles that discover devices, collect observations, persist results, and optionally ask the configured model to review them.
 - SQLite audit records for remote actions and outcomes.
 - GitHub Actions on pushes, pull requests, manual runs, and a weekly scheduled validation.
 - A systemd unit and LAN operator runbook for running the daemon continuously.

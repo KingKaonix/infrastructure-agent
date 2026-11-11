@@ -1,49 +1,22 @@
 #!/usr/bin/env python3
-"""
-AI reasoning layer for Infrastructure Agent
+"""OpenAI-compatible reasoning and tool dispatch for the infrastructure agent.
 
-Uses the `ai` library (v0.9.0) with an OpenAI-compatible provider (Omniroute
-server) for LLM-powered decision making. Provides a tool-use loop where the
-LLM decides WHAT to do and the code (Deployer, SSH executor, network
-discovery) executes it.
-
-Tools exposed to the LLM:
-  - analyze_github_repository: clone + detect stack of a GitHub repo
-  - generate_deployment_config: produce Dockerfile/docker-compose from analysis
-  - deploy_to_device: deploy a Docker app to a target device via SSH
-  - discover_network_devices: scan the LAN for discoverable devices
-  - execute_ssh_command: run an arbitrary command on a remote device
+The model chooses from a small, explicit tool set. Tool execution remains in
+the existing service objects, so their policy, approval, and audit boundaries
+continue to apply. The OpenAI client is injected at the boundary to keep the
+adapter deterministic and testable without a live model endpoint.
 """
+
+from __future__ import annotations
 
 import json
 import logging
-from typing import Dict, List, Any, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Protocol
 
 try:
-    from ai import (
-        Agent,
-        Model,
-        Tool,
-        Context,
-        user_message,
-        assistant_message,
-        system_message,
-        text_part,
-        tool_message,
-        tool_result_part,
-        tool,
-    )
-    from ai.providers import OpenAICompatibleProvider
-    from ai.types.messages import ToolCallPart, ToolResultPart
-    from ai.types.events import ToolStart, ToolEnd, TextStart, TextEnd, ToolCallResult
-except ImportError:  # The optional reasoning adapter must not break CLI/imports.
-    Agent = Model = Tool = Context = None
-    user_message = assistant_message = system_message = text_part = tool_message = (
-        tool_result_part
-    ) = tool = None
-    OpenAICompatibleProvider = ToolCallPart = ToolResultPart = ToolStart = ToolEnd = TextStart = (
-        TextEnd
-    ) = ToolCallResult = None
+    from openai import AsyncOpenAI
+except ImportError:  # Keep CLI/help and direct non-AI usage import-safe.
+    AsyncOpenAI = None  # type: ignore[assignment,misc]
 
 from ..core.config import get_config
 from ..deployment.deployer import Deployer, DeploymentResult
@@ -54,28 +27,30 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+class ChatCompletionClient(Protocol):
+    """The small async client surface used by this adapter and its tests."""
+
+    @property
+    def chat(self) -> Any: ...
+
+
+ToolHandler = Callable[..., Awaitable[Dict[str, Any]]]
+
+
 class AIReasoningLayer:
-    """AI reasoning layer that uses an OpenAI-compatible provider for decisions.
+    """Reason over requests using an OpenAI-compatible chat completion API."""
 
-    The LLM decides what actions to take; this class wires those decisions to
-    the Deployer, SSH executor, and network discovery components. Implements
-    the `ai` library tool-use loop via Agent.run().
-    """
-
-    def __init__(self):
+    def __init__(self, client: Optional[ChatCompletionClient] = None):
         self.config = get_config()
         ai_config = self.config.get("ai", {})
         self.provider = ai_config.get("provider", "openai_compatible")
         self.base_url = ai_config.get("base_url", "") or ""
         self.api_key = ai_config.get("api_key", "") or ""
         self.model_id = ai_config.get("model", "") or ""
-
-        # Components wired at process_request time (avoids circular construction)
+        self._client = client
         self._deployer: Optional[Deployer] = None
         self._ssh_executor: Optional[SSHExecutor] = None
         self._network_discovery: Optional[NetworkDiscovery] = None
-
-    # ------------------------------------------------------------------ setup
 
     def wire(
         self,
@@ -83,63 +58,119 @@ class AIReasoningLayer:
         ssh_executor: SSHExecutor,
         network_discovery: NetworkDiscovery,
     ) -> None:
-        """Wire the execution components the AI layer's tools delegate to."""
+        """Wire the service objects delegated to by model-selected tools."""
         self._deployer = deployer
         self._ssh_executor = ssh_executor
         self._network_discovery = network_discovery
 
-    def _build_model(self) -> Model:
-        """Construct a Model backed by the OpenAI-compatible provider."""
-        if Model is None:
-            raise RuntimeError(
-                "AI reasoning adapter is not installed; install the optional AI extra"
-            )
+    def _build_client(self) -> ChatCompletionClient:
+        """Create the OpenAI client lazily, after configuration is validated."""
+        if self._client is not None:
+            return self._client
+        if AsyncOpenAI is None:
+            raise RuntimeError("OpenAI reasoning adapter is not installed")
         if not self.model_id:
             raise RuntimeError(
                 "AI model not configured. Set ai.model in config/agent_config.json "
-                "(e.g. via OMNIROUTE_MODEL env var or edit the config file)."
+                "(e.g. via INFRA_AGENT_AI_MODEL)."
             )
         if not self.base_url:
             raise RuntimeError(
-                "AI base_url not configured. Set ai.base_url in config/agent_config.json "
-                "(your Omniroute server URL)."
+                "AI base_url not configured. Set ai.base_url in config/agent_config.json."
             )
         if not self.api_key:
             raise RuntimeError(
-                "AI api_key not configured. Set ai.api_key in config/agent_config.json "
-                "(your Omniroute API key)."
+                "AI api_key not configured. Set OPENAI_API_KEY or ai.api_key in config/agent_config.json."
             )
+        self._client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
+        return self._client
 
-        provider = OpenAICompatibleProvider(
-            name=self.provider,
-            default_base_url=self.base_url,
-            api_key_value=self.api_key,
-        )
-        return Model(id=self.model_id, provider=provider)
+    @staticmethod
+    def _tool_definitions() -> List[Dict[str, Any]]:
+        """Return stable JSON schemas understood by OpenAI-compatible servers."""
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": "analyze_github_repository",
+                    "description": "Analyze a GitHub repository and detect its application stack.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"github_url": {"type": "string"}},
+                        "required": ["github_url"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "generate_deployment_config",
+                    "description": "Generate Docker configuration from repository analysis.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"repo_analysis": {"type": "object"}},
+                        "required": ["repo_analysis"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "deploy_to_device",
+                    "description": "Deploy a Docker application to a target device via SSH.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "device_ip": {"type": "string"},
+                            "docker_config": {"type": "object"},
+                        },
+                        "required": ["device_ip", "docker_config"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "discover_network_devices",
+                    "description": "Scan the configured LAN for discoverable devices.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {},
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "execute_ssh_command",
+                    "description": "Execute a non-approved remote SSH command. Destructive commands require explicit approval outside the model.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "device_ip": {"type": "string"},
+                            "command": {"type": "string"},
+                        },
+                        "required": ["device_ip", "command"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+        ]
 
-    def _build_agent(self) -> Agent:
-        """Build an Agent whose tools delegate to the wired components."""
-        if Agent is None:
-            raise RuntimeError(
-                "AI reasoning adapter is not installed; install the optional AI extra"
-            )
+    def _handlers(self) -> Dict[str, ToolHandler]:
         deployer = self._deployer
         ssh = self._ssh_executor
         discovery = self._network_discovery
-
         if deployer is None or ssh is None or discovery is None:
             raise RuntimeError(
                 "AIReasoningLayer not wired. Call wire(deployer, ssh, discovery) first."
             )
 
-        # ------------------------------------------------------------------ tools
-
-        @tool
         async def analyze_github_repository(github_url: str) -> Dict[str, Any]:
-            """Analyze a GitHub repository to detect its stack and generate
-            initial Docker configuration. Returns stack/language info plus
-            paths to any existing Dockerfile/docker-compose.yml."""
-            logger.info(f"AI tool: analyze_github_repository({github_url})")
             result = await deployer.analyze_repository(github_url)
             return {
                 "success": result.success,
@@ -147,20 +178,8 @@ class AIReasoningLayer:
                 "error": result.stderr if not result.success else "",
             }
 
-        @tool
         async def generate_deployment_config(repo_analysis: Dict[str, Any]) -> Dict[str, Any]:
-            """Generate a Dockerfile and docker-compose.yml from a repository
-            analysis. Returns the file contents plus build/start commands.
-            Accepts either the full result dict from analyze_github_repository
-            (which has an "analysis" key) or just the analysis sub-dict."""
-            logger.info("AI tool: generate_deployment_config()")
-            # Accept either the full result dict or just the analysis sub-dict
-            analysis = (
-                repo_analysis.get("analysis", repo_analysis)
-                if isinstance(repo_analysis, dict)
-                else repo_analysis
-            )
-
+            analysis = repo_analysis.get("analysis", repo_analysis)
             docker_config = await deployer.generate_docker_config(
                 SSHResult(success=True, stdout=json.dumps(analysis))
             )
@@ -173,20 +192,11 @@ class AIReasoningLayer:
                 "start_command": docker_config.get("start_command"),
             }
 
-        @tool
         async def deploy_to_device(device_ip: str, docker_config: Dict[str, Any]) -> Dict[str, Any]:
-            """Deploy a Docker application (described by docker_config) to a
-            target device via SSH. Returns success/failure and health-check
-            status."""
-            logger.info(f"AI tool: deploy_to_device({device_ip})")
             result: DeploymentResult = await deployer.deploy_to_device(device_ip, docker_config)
             return result.to_dict()
 
-        @tool
         async def discover_network_devices() -> Dict[str, Any]:
-            """Scan the LAN for discoverable devices. Returns a list of
-            device dicts with ip, hostname, os, open_ports, ssh_available."""
-            logger.info("AI tool: discover_network_devices()")
             await discovery.discover_network()
             devices = discovery.get_all_devices()
             return {
@@ -195,25 +205,34 @@ class AIReasoningLayer:
                 "count": len(devices),
             }
 
-        @tool
         async def execute_ssh_command(device_ip: str, command: str) -> Dict[str, Any]:
-            """Execute an arbitrary command on a remote device via SSH.
-            Returns success, stdout, stderr, and exit code."""
-            logger.info(f"AI tool: execute_ssh_command({device_ip}, {command})")
-            result: SSHResult = await ssh.execute_command(device_ip, command)
+            # Never let model output grant approval; SSHExecutor applies policy and audits denial.
+            result: SSHResult = await ssh.execute_command(device_ip, command, approved=False)
             return result.to_dict()
 
-        return Agent(
-            tools=[
-                analyze_github_repository,
-                generate_deployment_config,
-                deploy_to_device,
-                discover_network_devices,
-                execute_ssh_command,
-            ]
-        )
+        return {
+            "analyze_github_repository": analyze_github_repository,
+            "generate_deployment_config": generate_deployment_config,
+            "deploy_to_device": deploy_to_device,
+            "discover_network_devices": discover_network_devices,
+            "execute_ssh_command": execute_ssh_command,
+        }
 
-    # ------------------------------------------------------------------ main entry
+    async def _dispatch_tool(self, name: str, arguments: str) -> Dict[str, Any]:
+        handlers = self._handlers()
+        handler = handlers.get(name)
+        if handler is None:
+            return {"success": False, "error": f"Unknown AI tool: {name}"}
+        try:
+            parsed = json.loads(arguments or "{}")
+            if not isinstance(parsed, dict):
+                raise ValueError("tool arguments must be a JSON object")
+            return await handler(**parsed)
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            return {"success": False, "error": f"Invalid arguments for {name}: {exc}"}
+        except Exception as exc:
+            logger.exception("AI tool %s failed", name)
+            return {"success": False, "error": str(exc)}
 
     async def process_request(
         self,
@@ -222,65 +241,66 @@ class AIReasoningLayer:
         ssh_executor: SSHExecutor,
         network_discovery: NetworkDiscovery,
     ) -> str:
-        """Process a natural-language request through the AI tool-use loop.
-
-        The LLM decides what to do (which tools to call, with what arguments);
-        this method runs the loop, executes tool results, and returns the
-        assistant's final text response.
-        """
+        """Run bounded model/tool turns and return the final assistant text."""
         self.wire(deployer, ssh_executor, network_discovery)
+        client = self._build_client()
+        if not self.model_id:
+            raise RuntimeError("AI model not configured for the injected client")
 
-        model = self._build_model()
-        agent = self._build_agent()
-
-        messages: List = [user_message(text_part(user_input))]
-
-        logger.info(f"Starting AI reasoning loop for: {user_input[:120]}")
-
-        final_text_parts: List[str] = []
+        messages: List[Dict[str, Any]] = [{"role": "user", "content": user_input}]
         tool_calls_made: List[str] = []
-
         try:
-            async with agent.run(model, messages) as stream:
-                async for event in stream:
-                    if isinstance(event, ToolStart):
-                        tool_calls_made.append(getattr(event, "tool_name", "unknown"))
-                        logger.info(f"AI tool call: {event.tool_name}")
-                    elif isinstance(event, ToolEnd):
-                        logger.info(f"AI tool completed: {getattr(event, 'tool_name', 'unknown')}")
-                    elif isinstance(event, TextStart):
-                        pass  # streaming text, handled via final messages
-                    elif isinstance(event, ToolCallResult):
-                        # Tool execution result — logged; fed back to model automatically
-                        pass
-
-                # Extract the final assistant message text from the conversation
-                for msg in reversed(stream.messages):
-                    if msg.role == "assistant":
-                        for part in msg.parts:
-                            if hasattr(part, "text") and part.text:
-                                final_text_parts.append(part.text)
-                        break
-
-        except Exception as e:
-            logger.exception(f"AI reasoning loop failed: {e}")
-            return f"AI reasoning failed: {e}"
-
-        if not final_text_parts:
-            if tool_calls_made:
-                return (
-                    "I executed the following tools on your behalf: "
-                    + ", ".join(tool_calls_made)
-                    + ". Please check the logs for detailed results."
+            for _ in range(8):
+                completion = await client.chat.completions.create(
+                    model=self.model_id,
+                    messages=messages,
+                    tools=self._tool_definitions(),
+                    tool_choice="auto",
                 )
-            return "I wasn't able to produce a response. Please check the logs."
+                message = completion.choices[0].message
+                tool_calls = message.tool_calls or []
+                messages.append(
+                    {
+                        "role": "assistant",
+                        "content": message.content,
+                        "tool_calls": [
+                            {
+                                "id": call.id,
+                                "type": "function",
+                                "function": {
+                                    "name": call.function.name,
+                                    "arguments": call.function.arguments,
+                                },
+                            }
+                            for call in tool_calls
+                        ]
+                        or None,
+                    }
+                )
+                if not tool_calls:
+                    return (
+                        message.content
+                        or "I wasn't able to produce a response. Please check the logs."
+                    )
+                for call in tool_calls:
+                    tool_calls_made.append(call.function.name)
+                    result = await self._dispatch_tool(call.function.name, call.function.arguments)
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": call.id,
+                            "content": json.dumps(result),
+                        }
+                    )
+        except Exception as exc:
+            logger.exception("AI reasoning loop failed: %s", exc)
+            return f"AI reasoning failed: {exc}"
 
-        response = "\n".join(final_text_parts)
-        if tool_calls_made:
-            response += f"\n\nTools used: {', '.join(tool_calls_made)}"
-        return response
-
-    # ------------------------------------------------------------------ convenience wrappers (direct, no AI)
+        return (
+            "I executed the following tools on your behalf: "
+            + ", ".join(tool_calls_made)
+            + ". Please check the logs for detailed results."
+        )
 
     async def analyze_repository(self, github_url: str) -> Dict[str, Any]:
         """Direct (non-AI) repository analysis via the Deployer."""
@@ -299,7 +319,5 @@ class AIReasoningLayer:
         """Direct (non-AI) end-to-end deployment via the Deployer."""
         if self._deployer is None:
             self._deployer = Deployer(ssh_executor=self._ssh_executor)
-        result: DeploymentResult = await self._deployer.deploy_from_github(
-            github_url, target_device_ip
-        )
+        result = await self._deployer.deploy_from_github(github_url, target_device_ip)
         return result.to_dict()

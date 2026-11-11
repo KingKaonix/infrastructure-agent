@@ -45,6 +45,14 @@ idempotent step:
 sudo deploy/provision-system-credentials.sh 192.168.12.229
 ```
 
+If the host already has a working OpenCode local model, include the explicit
+flag below. It copies only the standalone binary and its service connection
+metadata into the locked service account, with the metadata kept mode 0600:
+
+```bash
+sudo deploy/provision-system-credentials.sh 192.168.12.229 --enable-local-opencode
+```
+
 Before starting, edit `/etc/infrastructure-agent/agent.env`, provision the SSH
 key and `known_hosts`, and set an explicit LAN CIDR in the agent config. Do not
 put API keys or passwords in the JSON config or commit them to Git.

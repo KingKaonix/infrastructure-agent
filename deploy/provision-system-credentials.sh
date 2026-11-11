@@ -4,6 +4,12 @@ set -euo pipefail
 SERVICE_USER="infrastructure-agent"
 TARGET_USER="${SUDO_USER:-kaos}"
 TARGET_IP="${1:-192.168.12.229}"
+COPY_OPENCODE=0
+for argument in "$@"; do
+  if [[ "${argument}" == "--enable-local-opencode" ]]; then
+    COPY_OPENCODE=1
+  fi
+done
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname -- "${SCRIPT_DIR}")"
 STATE_DIR="/var/lib/${SERVICE_USER}"
@@ -69,6 +75,24 @@ set_env() {
 set_env INFRA_AGENT_SSH_USERNAME "${TARGET_USER}"
 set_env INFRA_AGENT_SSH_KEY "${KEY_FILE}"
 set_env INFRA_AGENT_SSH_KNOWN_HOSTS "${KNOWN_HOSTS}"
+
+if [[ "${COPY_OPENCODE}" -eq 1 ]]; then
+  OPENCODE_SOURCE="$(find "${TARGET_HOME}/.nvm/versions/node" -path '*/@opencode/cli/bin/opencode.exe' -type f -perm -111 -print -quit 2>/dev/null || true)"
+  OPENCODE_SERVICE_SOURCE="${TARGET_HOME}/.local/state/opencode/service.json"
+  if [[ ! -x "${OPENCODE_SOURCE}" || ! -r "${OPENCODE_SERVICE_SOURCE}" ]]; then
+    echo "Could not find the user's OpenCode binary or service metadata." >&2
+    exit 1
+  fi
+  install -d -o "${SERVICE_USER}" -g "${SERVICE_USER}" "${STATE_DIR}/bin" \
+    "${STATE_DIR}/.local/state/opencode"
+  install -o "${SERVICE_USER}" -g "${SERVICE_USER}" -m 0755 "${OPENCODE_SOURCE}" \
+    "${STATE_DIR}/bin/opencode"
+  install -o "${SERVICE_USER}" -g "${SERVICE_USER}" -m 0600 "${OPENCODE_SERVICE_SOURCE}" \
+    "${STATE_DIR}/.local/state/opencode/service.json"
+  set_env INFRA_AGENT_AI_PROVIDER "opencode_cli"
+  set_env INFRA_AGENT_AI_MODEL "opencode/beam-free"
+  set_env INFRA_AGENT_OPENCODE_BIN "${STATE_DIR}/bin/opencode"
+fi
 chown root:"${SERVICE_USER}" "${ENV_FILE}"
 chmod 640 "${ENV_FILE}"
 

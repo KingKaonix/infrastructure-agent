@@ -42,6 +42,7 @@ infrastructure-agent --request "show the status of 192.168.1.20"
 infrastructure-agent --interactive
 infrastructure-agent discover
 infrastructure-agent status
+infrastructure-agent doctor
 infrastructure-agent ssh 192.168.1.20 uptime
 infrastructure-agent deploy https://github.com/example/app 192.168.1.20
 infrastructure-agent optimize 192.168.1.20

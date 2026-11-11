@@ -21,6 +21,9 @@ Before starting, edit `/etc/infrastructure-agent/agent.env`, provision the SSH
 key and `known_hosts`, and set an explicit LAN CIDR in the agent config. Do not
 put API keys or passwords in the JSON config or commit them to Git.
 
+Run `infrastructure-agent doctor` before enabling the service. It reports the
+exact missing host prerequisites without performing network or remote actions.
+
 ## Verify operation
 
 ```bash

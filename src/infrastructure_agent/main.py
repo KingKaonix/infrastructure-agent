@@ -20,6 +20,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     commands.add_parser("discover", help="Scan the configured network once")
     commands.add_parser("status", help="Show discovered devices")
+    commands.add_parser("doctor", help="Check host readiness without changing state")
     serve = commands.add_parser("serve", help="Run the FastAPI status/control service")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8000)
@@ -82,6 +83,12 @@ async def async_main(argv: Sequence[str] | None = None) -> int:
                     indent=2,
                 )
             )
+        elif args.command == "doctor":
+            from infrastructure_agent.core.doctor import run_checks
+
+            result = run_checks(config)
+            print(json.dumps(result, indent=2))
+            return 0 if result["ready"] else 1
         elif args.command == "serve":
             import uvicorn
             from infrastructure_agent.api import create_app

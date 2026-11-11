@@ -15,6 +15,17 @@ systemctl --user daemon-reload
 systemctl --user enable --now infrastructure-agent
 ```
 
+To keep a user service running after logout and across reboot, enable systemd
+lingering once (this requires administrative access):
+
+```bash
+sudo loginctl enable-linger "$USER"
+loginctl show-user "$USER" -p Linger
+```
+
+Without lingering, the service remains active only while the user session is
+available. A root-managed service is the alternative for unattended hosts.
+
 For a dedicated system account, use the root service below.
 
 ```bash
@@ -44,7 +55,8 @@ infrastructure-agent audit --limit 20
 journalctl -u infrastructure-agent -f
 ```
 
-The daemon performs periodic discovery and read-only optimization observations.
+The daemon performs periodic discovery, read-only optimization observations,
+and (when configured) local OpenCode or OpenAI-compatible model reviews.
 Destructive commands remain blocked until an operator explicitly approves them.
 
 ## Optional status API
@@ -71,5 +83,6 @@ strongly recommended.
 
 Use a disposable device or VM. Confirm that discovery records it, `ssh <host>
 true` creates audit events, a Docker deployment can build and become healthy,
-and an unhealthy deployment rolls back. A live model endpoint is required only
-for natural-language requests; the operational CLI works without one.
+and an unhealthy deployment rolls back. A configured OpenCode CLI or
+OpenAI-compatible endpoint is required for natural-language requests and
+autonomous model review; the operational CLI works without one.

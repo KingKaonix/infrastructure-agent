@@ -11,6 +11,9 @@ from __future__ import annotations
 
 import json
 import logging
+import asyncio
+import os
+import shutil
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Protocol
 
 try:
@@ -47,6 +50,13 @@ class AIReasoningLayer:
         self.base_url = ai_config.get("base_url", "") or ""
         self.api_key = ai_config.get("api_key", "") or ""
         self.model_id = ai_config.get("model", "") or ""
+        self.opencode_bin = (
+            ai_config.get("opencode_bin", "")
+            or os.getenv("INFRA_AGENT_OPENCODE_BIN", "")
+            or shutil.which("opencode")
+            or "opencode"
+        )
+        self.opencode_timeout = int(ai_config.get("opencode_timeout", 120) or 120)
         self._client = client
         self._deployer: Optional[Deployer] = None
         self._ssh_executor: Optional[SSHExecutor] = None
@@ -243,6 +253,8 @@ class AIReasoningLayer:
     ) -> str:
         """Run bounded model/tool turns and return the final assistant text."""
         self.wire(deployer, ssh_executor, network_discovery)
+        if self._client is None and self.provider == "opencode_cli":
+            return await self._process_opencode_request(user_input)
         client = self._build_client()
         if not self.model_id:
             raise RuntimeError("AI model not configured for the injected client")
@@ -301,6 +313,87 @@ class AIReasoningLayer:
             + ", ".join(tool_calls_made)
             + ". Please check the logs for detailed results."
         )
+
+    async def _run_opencode(self, prompt: str) -> str:
+        """Run one bounded, machine-readable OpenCode request."""
+        if not self.model_id:
+            raise RuntimeError(
+                "OpenCode model not configured. Set ai.model or INFRA_AGENT_AI_MODEL."
+            )
+        if not os.path.isfile(self.opencode_bin) and shutil.which(self.opencode_bin) is None:
+            raise RuntimeError(f"OpenCode executable not found: {self.opencode_bin}")
+        process = await asyncio.create_subprocess_exec(
+            self.opencode_bin,
+            "run",
+            "--model",
+            self.model_id,
+            "--format",
+            "json",
+            "--archived",
+            prompt,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(), timeout=self.opencode_timeout
+            )
+        except asyncio.TimeoutError:
+            process.kill()
+            await process.communicate()
+            raise RuntimeError("OpenCode request timed out") from None
+        if process.returncode != 0:
+            detail = stderr.decode(errors="replace").strip()[-1000:]
+            raise RuntimeError(f"OpenCode request failed ({process.returncode}): {detail}")
+        text_parts: list[str] = []
+        for line in stdout.decode(errors="replace").splitlines():
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if event.get("type") == "text":
+                part = event.get("part", {})
+                if isinstance(part, dict) and isinstance(part.get("text"), str):
+                    text_parts.append(part["text"])
+        if not text_parts:
+            raise RuntimeError("OpenCode returned no text response")
+        return "\n".join(text_parts).strip()
+
+    async def _process_opencode_request(self, user_input: str) -> str:
+        """Use OpenCode's local CLI while retaining this layer's tool policy."""
+        tool_schema = json.dumps(self._tool_definitions(), separators=(",", ":"))
+        transcript: list[dict[str, Any]] = [{"role": "user", "content": user_input}]
+        tool_calls_made: list[str] = []
+        instructions = (
+            "You are the infrastructure agent. Return exactly one JSON object, no markdown. "
+            'Use {"type":"final","content":"..."} for a final response, or '
+            '{"type":"tool_call","name":"TOOL","arguments":{...}} for one tool call. '
+            "Use only the supplied tools. Never claim a tool ran before its result appears. "
+            "Destructive actions require approval and must be reported rather than executed. "
+            f"Tool schemas: {tool_schema}\n"
+        )
+        for _ in range(8):
+            prompt = instructions + "Conversation:\n" + json.dumps(transcript, default=str)
+            raw = await self._run_opencode(prompt)
+            try:
+                response = json.loads(raw)
+            except json.JSONDecodeError as exc:
+                return f"AI returned invalid structured output: {exc}"
+            if not isinstance(response, dict):
+                return "AI returned an invalid structured response."
+            if response.get("type") == "final":
+                return str(response.get("content", "")) or "No review was returned."
+            if response.get("type") != "tool_call":
+                return "AI returned an unknown response type."
+            name = response.get("name")
+            arguments = response.get("arguments", {})
+            if not isinstance(name, str) or not isinstance(arguments, dict):
+                return "AI returned invalid tool-call arguments."
+            tool_calls_made.append(name)
+            result = await self._dispatch_tool(name, json.dumps(arguments))
+            transcript.append({"role": "assistant", "tool": name, "arguments": arguments})
+            transcript.append({"role": "tool", "name": name, "content": result})
+        return "I executed the following tools: " + ", ".join(tool_calls_made)
 
     async def analyze_repository(self, github_url: str) -> Dict[str, Any]:
         """Direct (non-AI) repository analysis via the Deployer."""

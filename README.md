@@ -61,6 +61,15 @@ export INFRA_AGENT_AI_MODEL="your-model"
 export INFRA_TELEGRAM_BOT_TOKEN="..."
 ```
 
+For a host that already runs OpenCode, the agent can use its configured local
+models without storing another provider key:
+
+```bash
+export INFRA_AGENT_AI_PROVIDER="opencode_cli"
+export INFRA_AGENT_AI_MODEL="opencode/beam-free"
+export INFRA_AGENT_OPENCODE_BIN="/path/to/opencode"
+```
+
 No secret is written to JSON configuration. SSH credentials and host verification can be configured with `INFRA_AGENT_SSH_USERNAME`, `INFRA_AGENT_SSH_KEY`, and `INFRA_AGENT_SSH_KNOWN_HOSTS`.
 
 ## Configuration and state

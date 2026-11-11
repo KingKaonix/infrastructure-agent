@@ -72,8 +72,10 @@ class AgentConfig:
             "INFRA_AGENT_SSH_KEY": "ssh.key_path",
             "INFRA_AGENT_SSH_KNOWN_HOSTS": "ssh.known_hosts",
             "OPENAI_API_KEY": "ai.api_key",
+            "INFRA_AGENT_AI_PROVIDER": "ai.provider",
             "INFRA_AGENT_AI_BASE_URL": "ai.base_url",
             "INFRA_AGENT_AI_MODEL": "ai.model",
+            "INFRA_AGENT_OPENCODE_BIN": "ai.opencode_bin",
         }
         for env_name, key in mappings.items():
             if os.getenv(env_name):

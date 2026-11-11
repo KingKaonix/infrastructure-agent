@@ -62,6 +62,7 @@ class AutonomousSupervisor:
                 summary["ai_review"] = await self.ai_layer.process_request(
                     prompt, self.deployer, self.ssh, self.discovery
                 )
+                logger.info("Autonomous AI review complete: %s", summary["ai_review"])
             except Exception as exc:
                 logger.warning("Autonomous AI review skipped: %s", exc)
                 summary["ai_review"] = {"skipped": str(exc)}

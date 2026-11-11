@@ -97,6 +97,32 @@ async def test_unknown_tool_is_returned_as_structured_failure():
     assert result == {"success": False, "error": "Unknown AI tool: not_a_tool"}
 
 
+@pytest.mark.asyncio
+async def test_opencode_provider_dispatches_tool_and_returns_final(monkeypatch):
+    ssh = FakeSSH()
+    layer = AIReasoningLayer(client=None)
+    layer.provider = "opencode_cli"
+    layer.model_id = "test-model"
+    responses = iter(
+        [
+            '{"type":"tool_call","name":"execute_ssh_command","arguments":{"device_ip":"10.0.0.2","command":"uptime"}}',
+            '{"type":"final","content":"Observation complete."}',
+        ]
+    )
+
+    async def fake_run(prompt):
+        assert "tool_call" in prompt
+        return next(responses)
+
+    monkeypatch.setattr(layer, "_run_opencode", fake_run)
+    result = await layer.process_request(
+        "inspect the device", EmptyDeployer(), ssh, EmptyDiscovery()
+    )
+
+    assert result == "Observation complete."
+    assert ssh.calls == [("10.0.0.2", "uptime", False)]
+
+
 def test_tool_schema_does_not_expose_approval_as_model_control():
     tools = AIReasoningLayer._tool_definitions()
     ssh_tool = next(tool for tool in tools if tool["function"]["name"] == "execute_ssh_command")
@@ -107,6 +133,7 @@ def test_tool_schema_does_not_expose_approval_as_model_control():
 
 def test_build_client_validates_configuration_without_network_call():
     layer = AIReasoningLayer(client=None)
+    layer.model_id = ""
 
     with pytest.raises(RuntimeError, match="AI model not configured"):
         layer._build_client()

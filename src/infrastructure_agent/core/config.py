@@ -25,6 +25,7 @@ class AgentConfig:
             "network": {
                 "discovery_interval": 300,
                 "scan_range": "",
+                "auto_detect": True,
                 "scan_private_only": False,
                 "allowed_subnets": [],
             },

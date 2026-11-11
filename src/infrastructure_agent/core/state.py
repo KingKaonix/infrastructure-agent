@@ -25,7 +25,7 @@ class StateRepository:
     SQLite connection.
     """
 
-    LATEST_SCHEMA_VERSION = 1
+    LATEST_SCHEMA_VERSION = 2
 
     def __init__(self, path: str | Path = "state/agent.db") -> None:
         self.path = Path(path).expanduser().resolve()
@@ -33,9 +33,10 @@ class StateRepository:
         self.migrate()
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
+        connection = sqlite3.connect(self.path, timeout=30)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute("PRAGMA busy_timeout = 30000")
         return connection
 
     def migrate(self) -> None:
@@ -56,6 +57,13 @@ class StateRepository:
                     "INSERT INTO schema_migrations(version, applied_at) VALUES(?, ?)",
                     (1, _now()),
                 )
+                applied.add(1)
+            if 2 not in applied:
+                self._migration_two(db)
+                db.execute(
+                    "INSERT INTO schema_migrations(version, applied_at) VALUES(?, ?)",
+                    (2, _now()),
+                )
 
     @staticmethod
     def _migration_one(db: sqlite3.Connection) -> None:
@@ -68,7 +76,8 @@ class StateRepository:
                 os TEXT NOT NULL DEFAULT '',
                 open_ports TEXT NOT NULL DEFAULT '[]',
                 ssh_available INTEGER NOT NULL DEFAULT 0,
-                discovered_at TEXT NOT NULL
+                discovered_at TEXT NOT NULL,
+                stale INTEGER NOT NULL DEFAULT 0
             );
 
             CREATE TABLE IF NOT EXISTS deployments (
@@ -125,6 +134,12 @@ class StateRepository:
         db.execute("UPDATE audit_events SET timestamp = COALESCE(timestamp, created_at)")
 
     @staticmethod
+    def _migration_two(db: sqlite3.Connection) -> None:
+        columns = {row[1] for row in db.execute("PRAGMA table_info(devices)")}
+        if "stale" not in columns:
+            db.execute("ALTER TABLE devices ADD COLUMN stale INTEGER NOT NULL DEFAULT 0")
+
+    @staticmethod
     def _row(row: sqlite3.Row | None) -> dict[str, Any] | None:
         return dict(row) if row is not None else None
 
@@ -137,17 +152,18 @@ class StateRepository:
         open_ports: Iterable[int] | None = None,
         ssh_available: bool = False,
         discovered_at: str | None = None,
+        stale: bool = False,
     ) -> int:
         """Insert a device or update the inventory record for its IP address."""
         with self._connect() as db:
             db.execute(
                 """
-                INSERT INTO devices(ip, hostname, os, open_ports, ssh_available, discovered_at)
-                VALUES(?, ?, ?, ?, ?, ?)
+                INSERT INTO devices(ip, hostname, os, open_ports, ssh_available, discovered_at, stale)
+                VALUES(?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(ip) DO UPDATE SET
                     hostname=excluded.hostname, os=excluded.os,
                     open_ports=excluded.open_ports, ssh_available=excluded.ssh_available,
-                    discovered_at=excluded.discovered_at
+                    discovered_at=excluded.discovered_at, stale=excluded.stale
                 """,
                 (
                     ip,
@@ -156,11 +172,16 @@ class StateRepository:
                     _json(list(open_ports) if open_ports is not None else [], []),
                     int(ssh_available),
                     discovered_at or _now(),
+                    int(stale),
                 ),
             )
             row = db.execute("SELECT id FROM devices WHERE ip = ?", (ip,)).fetchone()
             assert row is not None
             return int(row[0])
+
+    def mark_devices_stale(self) -> None:
+        with self._connect() as db:
+            db.execute("UPDATE devices SET stale = 1")
 
     def get_device(self, device_id: int) -> dict[str, Any] | None:
         with self._connect() as db:

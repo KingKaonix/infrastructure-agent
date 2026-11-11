@@ -6,6 +6,17 @@ managed devices.
 
 ## Install as a service
 
+For a non-root install in a user session:
+
+```bash
+mkdir -p ~/.config/systemd/user
+cp deploy/infrastructure-agent-user.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now infrastructure-agent
+```
+
+For a dedicated system account, use the root service below.
+
 ```bash
 sudo useradd --system --home /var/lib/infrastructure-agent infrastructure-agent
 sudo install -d -o infrastructure-agent -g infrastructure-agent /var/lib/infrastructure-agent

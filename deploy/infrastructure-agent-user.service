@@ -1,0 +1,15 @@
+[Unit]
+Description=Infrastructure Agent autonomous LAN administrator (user service)
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/auto-admin/infrastructure-agent
+Environment=INFRA_AGENT_CONFIG=%h/auto-admin/infrastructure-agent/config/agent_config.json
+Environment=PYTHONUNBUFFERED=1
+ExecStart=%h/auto-admin/infrastructure-agent/.venv/bin/infrastructure-agent
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

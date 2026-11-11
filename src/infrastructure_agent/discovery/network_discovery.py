@@ -25,6 +25,7 @@ class DeviceInfo:
         self.open_ports = open_ports or []
         self.last_seen = datetime.now()
         self.ssh_available = False
+        self.stale = False
         self.ssh_username = ""
         self.ssh_password = ""
 
@@ -37,6 +38,7 @@ class DeviceInfo:
             "last_seen": self.last_seen.isoformat(),
             "ssh_available": self.ssh_available,
             "ssh_username": self.ssh_username,
+            "stale": self.stale,
         }
 
 
@@ -71,6 +73,7 @@ class NetworkDiscovery:
                 open_ports=json.loads(data.get("open_ports", "[]")),
             )
             device.ssh_available = bool(data.get("ssh_available", False))
+            device.stale = bool(data.get("stale", False))
             self.devices[device.ip] = device
 
     def save_inventory(self) -> None:
@@ -83,6 +86,7 @@ class NetworkDiscovery:
                 open_ports=device.open_ports,
                 ssh_available=device.ssh_available,
                 discovered_at=device.last_seen.isoformat(),
+                stale=getattr(device, "stale", False),
             )
 
     async def start_discovery(self) -> None:
@@ -109,7 +113,8 @@ class NetworkDiscovery:
     async def discover_network(self) -> None:
         """Discover devices on the network"""
         network_config = self.config.get("network", {})
-        scan_range = network_config.get("scan_range", "192.168.1.0/24")
+        scan_range = network_config.get("scan_range", "")
+        auto_detect = network_config.get("auto_detect", True)
         scan_private_only = network_config.get("scan_private_only", False)
         allowed_subnets = network_config.get(
             "allowed_subnets", ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
@@ -117,20 +122,26 @@ class NetworkDiscovery:
 
         logger.info(f"Scanning network range: {scan_range}")
         logger.info(f"Scanning private only: {scan_private_only}")
+        self.state.mark_devices_stale()
+        for device in self.devices.values():
+            device.stale = True
 
-        # Determine which networks to scan
+        # Determine which networks to scan. Auto-detection prevents a copied
+        # config from silently scanning a different LAN than the host uses.
         networks_to_scan: list[ipaddress.IPv4Network] = []
-        try:
-            if scan_private_only:
-                # Scan only explicitly configured private subnets.
-                for subnet in allowed_subnets:
-                    networks_to_scan.append(ipaddress.IPv4Network(subnet))
-            else:
-                # Scan the full configured range
-                networks_to_scan.append(ipaddress.IPv4Network(scan_range))
-        except Exception as e:
-            logger.error(f"Invalid network configuration, falling back to default: {e}")
-            networks_to_scan = []
+        if auto_detect:
+            networks_to_scan = await self._detect_local_networks()
+        if not networks_to_scan:
+            try:
+                if scan_private_only:
+                    # Scan only explicitly configured private subnets.
+                    for subnet in allowed_subnets:
+                        networks_to_scan.append(ipaddress.IPv4Network(subnet))
+                else:
+                    # Scan the full configured range
+                    networks_to_scan.append(ipaddress.IPv4Network(scan_range))
+            except Exception as e:
+                logger.error(f"Invalid network configuration: {e}")
 
         if not networks_to_scan:
             if not scan_range:
@@ -143,6 +154,33 @@ class NetworkDiscovery:
         for network in networks_to_scan:
             await self._scan_network_range(network)
 
+    async def _detect_local_networks(self) -> list[ipaddress.IPv4Network]:
+        try:
+            process = await asyncio.create_subprocess_exec(
+                "ip",
+                "-o",
+                "-4",
+                "addr",
+                "show",
+                "scope",
+                "global",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _ = await asyncio.wait_for(process.communicate(), timeout=3)
+            networks = []
+            for line in stdout.decode().splitlines():
+                fields = line.split()
+                if "inet" not in fields:
+                    continue
+                cidr = fields[fields.index("inet") + 1]
+                network = ipaddress.ip_network(cidr, strict=False)
+                if isinstance(network, ipaddress.IPv4Network) and network.prefixlen >= 16:
+                    networks.append(network)
+            return list(dict.fromkeys(networks))
+        except (asyncio.TimeoutError, OSError, ValueError, IndexError):
+            return []
+
     async def _scan_network_range(self, network: ipaddress.IPv4Network) -> None:
         """Scan a single network range for devices"""
         logger.info(f"Scanning network: {network}")
@@ -153,6 +191,7 @@ class NetworkDiscovery:
             host_list = list(hosts)
 
             await asyncio.gather(*(self._bounded_scan(str(host)) for host in host_list))
+            self.save_inventory()
 
         except Exception as e:
             logger.error(f"Error scanning network {network}: {e}")
@@ -169,24 +208,22 @@ class NetworkDiscovery:
         logger.info(f"Scanning device: {ip}")
 
         try:
-            # Try to get hostname (ping)
-            hostname = await self.get_hostname(ip)
-
             # Scan ports
             open_ports = await self.scan_ports(ip)
+            ssh_available = 22 in open_ports or await self.check_ssh(ip)
 
-            # Try to detect OS
+            if not open_ports and not ssh_available:
+                return
+
+            # Only perform slower reverse DNS and OS detection for responsive hosts.
+            hostname = await self.get_hostname(ip)
             os_info = await self.detect_os(ip)
-
-            # Check SSH availability
-            ssh_available = await self.check_ssh(ip)
 
             device = DeviceInfo(ip=ip, hostname=hostname, os=os_info, open_ports=open_ports)
             device.ssh_available = ssh_available
+            device.stale = False
 
             self.devices[ip] = device
-            self.save_inventory()
-
             logger.info(
                 f"Discovered device: {ip} (hostname: {hostname}, OS: {os_info}, open_ports: {open_ports}, SSH: {ssh_available}"
             )
@@ -201,7 +238,8 @@ class NetworkDiscovery:
                 "host", ip, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
             )
             stdout, _ = await result.communicate()
-            return stdout.decode().strip()
+            hostname = stdout.decode().strip()
+            return "" if "not found" in hostname.lower() else hostname
         except Exception as e:
             logger.debug(f"Could not resolve hostname for {ip}: {e}")
             return ""
@@ -229,7 +267,14 @@ class NetworkDiscovery:
                         ports.append(port)
                     except ValueError:
                         pass
-            return ports
+            if ports:
+                return ports
+            # Minimal fallback when nmap is not installed.
+            common_ports = (22, 80, 443, 3000, 8000, 8080)
+            checks = await asyncio.gather(
+                *(self._probe_port(ip, port) for port in common_ports), return_exceptions=True
+            )
+            return [port for port, open_ in zip(common_ports, checks) if open_ is True]
 
         except Exception as e:
             logger.debug(f"Could not scan ports for {ip}: {e}")
@@ -276,6 +321,21 @@ class NetworkDiscovery:
             return result.returncode == 0
         except Exception as e:
             logger.debug(f"Could not check SSH for {ip}: {e}")
+            try:
+                reader, writer = await asyncio.wait_for(asyncio.open_connection(ip, 22), timeout=2)
+                writer.close()
+                await writer.wait_closed()
+                return True
+            except (OSError, asyncio.TimeoutError):
+                return False
+
+    async def _probe_port(self, ip: str, port: int) -> bool:
+        try:
+            _, writer = await asyncio.wait_for(asyncio.open_connection(ip, port), timeout=1)
+            writer.close()
+            await writer.wait_closed()
+            return True
+        except (OSError, asyncio.TimeoutError):
             return False
 
     def get_device_by_ip(self, ip: str) -> DeviceInfo | None:

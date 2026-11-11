@@ -76,7 +76,7 @@ async def test_connect_passes_host_key_and_auth_settings_to_fake_client(tmp_path
         "username": "default-user",
         "client_keys": [str(tmp_path / ".ssh/deploy_key")],
         "known_hosts": str(tmp_path / ".ssh/known_hosts"),
-        "timeout": 30,
+        "connect_timeout": 30,
         "password": "secret",
     }
     assert audit_events(tmp_path / "audit.db")[0][3] == "success"

@@ -84,7 +84,7 @@ class SSHExecutor:
                 known_hosts=os.path.expanduser(
                     self.config.get("ssh", {}).get("known_hosts", "~/.ssh/known_hosts")
                 ),
-                timeout=self.session_timeout,
+                connect_timeout=self.session_timeout,
             )
             if password:
                 connect_kwargs["password"] = password
@@ -152,7 +152,10 @@ class SSHExecutor:
             logger.info(f"Executing command on {device_ip}: {command}")
 
             # Execute the command
-            result = await connect.run_command(command, timeout=timeout, encoding="utf-8")
+            if hasattr(connect, "run_command"):
+                result = await connect.run_command(command, timeout=timeout, encoding="utf-8")
+            else:
+                result = await connect.run(command, timeout=timeout, encoding="utf-8")
 
             execution_time = result.duration if hasattr(result, "duration") else 0.0
 

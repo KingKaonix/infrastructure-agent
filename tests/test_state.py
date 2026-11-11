@@ -65,4 +65,4 @@ def test_migration_is_idempotent(tmp_path):
     repository.migrate()
 
     with sqlite3.connect(tmp_path / "agent.db") as db:
-        assert db.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 1
+        assert db.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 2

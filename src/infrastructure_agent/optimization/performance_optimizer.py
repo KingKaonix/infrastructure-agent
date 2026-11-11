@@ -88,7 +88,7 @@ class PerformanceOptimizer:
 
         for ip, device in devices.items():
             try:
-                if not device.ssh_available:
+                if getattr(device, "stale", False) or not device.ssh_available:
                     continue
 
                 result = await self.optimize_device(ip)

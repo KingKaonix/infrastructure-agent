@@ -97,6 +97,26 @@ fi
 chown root:"${SERVICE_USER}" "${ENV_FILE}"
 chmod 640 "${ENV_FILE}"
 
+# Install the immutable helper used by the self-hosted GitHub Actions runner.
+# The runner receives no broad systemctl/journalctl sudo access.
+install -d -o root -g root -m 0755 /usr/local/lib/infrastructure-agent /usr/local/sbin
+install -o root -g root -m 0755 "${REPO_DIR}/deploy/provision-system-credentials.sh" \
+  /usr/local/lib/infrastructure-agent/provision-system-credentials.sh
+install -o root -g root -m 0755 "${REPO_DIR}/deploy/lan-agent-actions.sh" \
+  /usr/local/lib/infrastructure-agent/lan-agent-actions.sh
+install -o root -g root -m 0755 "${REPO_DIR}/deploy/lan-agent-actions.sh" \
+  /usr/local/sbin/infrastructure-agent-actions
+SUDOERS_FILE=/etc/sudoers.d/infrastructure-agent-actions
+install -d -o root -g root -m 0755 /etc/sudoers.d
+printf '%s ALL=(root) NOPASSWD: /usr/local/sbin/infrastructure-agent-actions\n' \
+  "${TARGET_USER}" > "${SUDOERS_FILE}.new"
+chmod 440 "${SUDOERS_FILE}.new"
+if command -v visudo >/dev/null 2>&1; then
+  visudo -cf "${SUDOERS_FILE}.new" >/dev/null
+fi
+install -o root -g root -m 0440 "${SUDOERS_FILE}.new" "${SUDOERS_FILE}"
+rm -f "${SUDOERS_FILE}.new"
+
 systemctl restart infrastructure-agent.service
 echo "Provisioned SSH credentials for ${SERVICE_USER}; system service restarted."
 if [[ "${COPY_OPENCODE}" -eq 1 ]]; then

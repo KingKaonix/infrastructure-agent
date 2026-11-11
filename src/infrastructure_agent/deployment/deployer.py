@@ -501,7 +501,11 @@ CMD ["sh", "-c", "echo 'Hello from Docker'"]
                 )
 
             # Health check
-            health_result = await self.wait_for_health(device_ip, context=context)
+            health_result = await self.wait_for_health(
+                device_ip,
+                timeout=int(self.config.get("deployment", {}).get("health_check_timeout", 60)),
+                context=context,
+            )
 
             if not health_result.success:
                 await self.ssh_executor.execute_command(
@@ -509,9 +513,13 @@ CMD ["sh", "-c", "echo 'Hello from Docker'"]
                 )
 
             return DeploymentResult(
-                success=start_result.success,
-                message="Deployment successful" if start_result.success else start_result.stderr,
-                docker_container_id=start_result.stdout[:12] if start_result.stdout else "",
+                success=start_result.success and health_result.success,
+                message=(
+                    "Deployment successful"
+                    if start_result.success and health_result.success
+                    else health_result.stderr or start_result.stderr
+                ),
+                docker_container_id=(start_result.stdout.strip().split()[0][:12] if start_result.stdout.strip() else ""),
                 health_check=health_result.success,
             )
 

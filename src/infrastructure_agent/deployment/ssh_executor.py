@@ -48,7 +48,7 @@ class SSHResult:
 class SSHExecutor:
     """Executes commands via SSH on remote devices"""
 
-    def __init__(self, *, audit_log=None, policy=None, device_registry=None):
+    def __init__(self, *, audit_log=None, policy=None, device_registry=None, ssh_client=None):
         self.config = get_config()
         self.active_connections: Dict[str, Any] = {}
         self.session_timeout = self.config.get("ssh", {}).get("timeout", 30)
@@ -59,12 +59,13 @@ class SSHExecutor:
         allowed = tuple(self.config.get("ssh", {}).get("allowed_hosts", ()))
         self.policy = policy or CommandPolicy(allowed_hosts=allowed)
         self.device_registry = device_registry
+        self.ssh_client = ssh_client if ssh_client is not None else asyncssh
 
     async def connect(
         self, device_ip: str, username: str = None, key_path: str = None, password: str = None
     ) -> bool:
         """Establish SSH connection to a device"""
-        if asyncssh is None:
+        if self.ssh_client is None:
             logger.error("asyncssh is not installed")
             return False
         ip = device_ip
@@ -94,7 +95,7 @@ class SSHExecutor:
             logger.info(f"Connecting to SSH: {ip} as {user}")
             for attempt in range(self.max_retries):
                 try:
-                    self.active_connections[ip] = await asyncssh.connect(**connect_kwargs)
+                    self.active_connections[ip] = await self.ssh_client.connect(**connect_kwargs)
                     self.audit.record("ssh.connect", target=ip, outcome="success")
                     return True
                 except Exception:
@@ -159,7 +160,7 @@ class SSHExecutor:
                 success=result.exit_status == 0,
                 stdout=result.stdout or "",
                 stderr=result.stderr or "",
-                exit_code=result.exit_status or -1,
+                exit_code=result.exit_status if result.exit_status is not None else -1,
                 execution_time=execution_time,
             )
             self.audit.record(
@@ -210,7 +211,7 @@ class SSHExecutor:
                 success=result.exit_status == 0,
                 stdout=result.stdout or "",
                 stderr=result.stderr or "",
-                exit_code=result.exit_status or -1,
+                exit_code=result.exit_status if result.exit_status is not None else -1,
             )
 
         except Exception as e:

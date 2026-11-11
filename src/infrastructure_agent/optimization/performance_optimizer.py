@@ -3,7 +3,7 @@
 import asyncio
 import logging
 import json
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Dict, List, Any, Optional
 from pathlib import Path
 
@@ -17,8 +17,7 @@ logger = logging.getLogger(__name__)
 class OptimizationResult:
     """Result from an optimization operation"""
 
-    def __init__(self, success: bool, message: str = "",
-                 actions_taken: List[Dict] = None):
+    def __init__(self, success: bool, message: str = "", actions_taken: List[Dict] = None):
         self.success = success
         self.message = message
         self.actions_taken = actions_taken or []
@@ -27,40 +26,39 @@ class OptimizationResult:
         return {
             "success": self.success,
             "message": self.message,
-            "actions_taken": [a.to_dict() if hasattr(a, 'to_dict') else a for a in self.actions_taken]
+            "actions_taken": [
+                a.to_dict() if hasattr(a, "to_dict") else a for a in self.actions_taken
+            ],
         }
 
 
 class PerformanceOptimizer:
     """Monitors and optimizes performance across all devices"""
 
-    def __init__(self, config_path: str = "config/agent_config.json",
-                 ssh_executor=None):
+    def __init__(self, config_path: str = "config/agent_config.json", ssh_executor=None):
         self.config = get_config()
         self.ssh_executor = ssh_executor or SSHExecutor()
         self.check_interval = self.config.get("optimization", {}).get(
-            "check_interval", 1800)  # 30 minutes
-        self.cpu_threshold = self.config.get("optimization", {}).get(
-            "cpu_threshold", 80)
-        self.memory_threshold = self.config.get("optimization", {}).get(
-            "memory_threshold", 85)
-        self.disk_threshold = self.config.get("optimization", {}).get(
-            "disk_threshold", 80)
+            "check_interval", 1800
+        )  # 30 minutes
+        self.cpu_threshold = self.config.get("optimization", {}).get("cpu_threshold", 80)
+        self.memory_threshold = self.config.get("optimization", {}).get("memory_threshold", 85)
+        self.disk_threshold = self.config.get("optimization", {}).get("disk_threshold", 80)
         self.optimization_history: List[Dict] = []
         self.load_history()
 
     def load_history(self) -> None:
         """Load optimization history from file"""
-        history_file = Path(f"optimization_history.json")
+        history_file = Path("optimization_history.json")
         if history_file.exists():
-            with open(history_file, 'r') as f:
+            with open(history_file, "r") as f:
                 data = json.load(f)
                 self.optimization_history = data.get("history", [])
 
     def save_history(self) -> None:
         """Save optimization history to file"""
-        history_file = Path(f"optimization_history.json")
-        with open(history_file, 'w') as f:
+        history_file = Path("optimization_history.json")
+        with open(history_file, "w") as f:
             json.dump({"history": self.optimization_history}, f, indent=2)
 
     async def start_periodic_checks(self) -> None:
@@ -89,11 +87,13 @@ class PerformanceOptimizer:
                     continue
 
                 result = await self.optimize_device(ip)
-                self.optimization_history.append({
-                    "timestamp": datetime.now().isoformat(),
-                    "device_ip": ip,
-                    "result": result.to_dict()
-                })
+                self.optimization_history.append(
+                    {
+                        "timestamp": datetime.now().isoformat(),
+                        "device_ip": ip,
+                        "result": result.to_dict(),
+                    }
+                )
 
                 if result.success:
                     successful_checks += 1
@@ -106,7 +106,8 @@ class PerformanceOptimizer:
                 logger.error(f"Error optimizing device {ip}: {e}")
 
         logger.info(
-            f"Optimization cycle complete: {successful_checks}/{total_devices} devices optimized")
+            f"Optimization cycle complete: {successful_checks}/{total_devices} devices optimized"
+        )
 
         # Save final history
         self.save_history()
@@ -120,31 +121,33 @@ class PerformanceOptimizer:
         try:
             # Check CPU usage
             cpu_result = await self.ssh_executor.execute_command(
-                device_ip,
-                "LC_ALL=C top -bn1 | awk '/Cpu\\(s\\)/ {print 100 - $8; exit}'"
+                device_ip, "LC_ALL=C top -bn1 | awk '/Cpu\\(s\\)/ {print 100 - $8; exit}'"
             )
 
             if cpu_result.success:
                 cpu_usage = self.parse_cpu_usage(cpu_result.stdout)
-                actions.append({
-                    "action": "check_cpu",
-                    "cpu_usage": cpu_usage,
-                    "timestamp": datetime.now().isoformat()
-                })
+                actions.append(
+                    {
+                        "action": "check_cpu",
+                        "cpu_usage": cpu_usage,
+                        "timestamp": datetime.now().isoformat(),
+                    }
+                )
 
                 if cpu_usage and cpu_usage > self.cpu_threshold:
                     # Try to find high CPU processes and suggest restart
                     top_result = await self.ssh_executor.execute_command(
-                        device_ip,
-                        "ps aux --sort=-%cpu | head -n 10"
+                        device_ip, "ps aux --sort=-%cpu | head -n 10"
                     )
 
                     if top_result.success:
-                        actions.append({
-                            "action": "identify_high_cpu_processes",
-                            "processes": top_result.stdout[:500],
-                            "timestamp": datetime.now().isoformat()
-                        })
+                        actions.append(
+                            {
+                                "action": "identify_high_cpu_processes",
+                                "processes": top_result.stdout[:500],
+                                "timestamp": datetime.now().isoformat(),
+                            }
+                        )
 
                         # Suggest restarting top process
                         # Note: We won't auto-restart without explicit user permission
@@ -152,54 +155,56 @@ class PerformanceOptimizer:
 
             # Check memory usage
             memory_result = await self.ssh_executor.execute_command(
-                device_ip,
-                "free -b | awk '/Mem:/ {printf \"%s %s\\n\", $2, $3}'"
+                device_ip, "free -b | awk '/Mem:/ {printf \"%s %s\\n\", $2, $3}'"
             )
 
             if memory_result.success:
                 memory_usage = self.parse_memory_usage(memory_result.stdout)
-                actions.append({
-                    "action": "check_memory",
-                    "memory_usage": memory_usage,
-                    "timestamp": datetime.now().isoformat()
-                })
+                actions.append(
+                    {
+                        "action": "check_memory",
+                        "memory_usage": memory_usage,
+                        "timestamp": datetime.now().isoformat(),
+                    }
+                )
 
                 if memory_usage and memory_usage > self.memory_threshold:
                     # Suggest restarting services or clearing cache
-                    actions.append({
-                        "action": "high_memory_warning",
-                        "message": "Memory usage above threshold",
-                        "timestamp": datetime.now().isoformat()
-                    })
+                    actions.append(
+                        {
+                            "action": "high_memory_warning",
+                            "message": "Memory usage above threshold",
+                            "timestamp": datetime.now().isoformat(),
+                        }
+                    )
 
             # Check disk usage
             disk_result = await self.ssh_executor.execute_command(
-                device_ip,
-                "df -P -k / | awk 'NR==2 {gsub(/%/,\"\",$5); print $5}'"
+                device_ip, "df -P -k / | awk 'NR==2 {gsub(/%/,\"\",$5); print $5}'"
             )
 
             if disk_result.success:
                 disk_usage = self.parse_disk_usage(disk_result.stdout)
-                actions.append({
-                    "action": "check_disk",
-                    "disk_usage": disk_usage,
-                    "timestamp": datetime.now().isoformat()
-                })
+                actions.append(
+                    {
+                        "action": "check_disk",
+                        "disk_usage": disk_usage,
+                        "timestamp": datetime.now().isoformat(),
+                    }
+                )
 
                 if disk_usage and disk_usage > self.disk_threshold:
-                    actions.append({
-                        "action": "cleanup_recommendation",
-                        "message": "Disk usage above threshold; cleanup requires explicit approval",
-                        "timestamp": datetime.now().isoformat()
-                    })
+                    actions.append(
+                        {
+                            "action": "cleanup_recommendation",
+                            "message": "Disk usage above threshold; cleanup requires explicit approval",
+                            "timestamp": datetime.now().isoformat(),
+                        }
+                    )
 
             # Return structured result
             return SSHResult(
-                success=True,
-                stdout=json.dumps({
-                    "actions": actions,
-                    "device_ip": device_ip
-                })
+                success=True, stdout=json.dumps({"actions": actions, "device_ip": device_ip})
             )
 
         except Exception as e:
@@ -235,7 +240,7 @@ class PerformanceOptimizer:
         """Parse disk usage from df output"""
         try:
             value = output.strip().splitlines()[0]
-            return float(value.rstrip('%'))
+            return float(value.rstrip("%"))
         except (ValueError, IndexError):
             pass
         return None

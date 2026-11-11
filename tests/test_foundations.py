@@ -1,4 +1,3 @@
-import json
 import os
 import subprocess
 import sys
@@ -48,6 +47,12 @@ def test_metric_parsers_accept_machine_readable_output():
 
 def test_help_does_not_start_runtime_or_require_ai():
     root = Path(__file__).parents[1]
-    result = subprocess.run([sys.executable, "-m", "infrastructure_agent.main", "--help"], cwd=root, env={**os.environ, "PYTHONPATH": str(root / "src")}, capture_output=True, text=True)
+    result = subprocess.run(
+        [sys.executable, "-m", "infrastructure_agent.main", "--help"],
+        cwd=root,
+        env={**os.environ, "PYTHONPATH": str(root / "src")},
+        capture_output=True,
+        text=True,
+    )
     assert result.returncode == 0
     assert "Infrastructure Agent" in result.stdout

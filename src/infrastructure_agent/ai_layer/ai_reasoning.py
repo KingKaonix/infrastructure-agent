@@ -15,38 +15,40 @@ Tools exposed to the LLM:
   - execute_ssh_command: run an arbitrary command on a remote device
 """
 
-import asyncio
 import json
 import logging
-from pathlib import Path
 from typing import Dict, List, Any, Optional
 
 try:
     from ai import (
-    Agent,
-    Model,
-    Tool,
-    Context,
-    user_message,
-    assistant_message,
-    system_message,
-    text_part,
-    tool_message,
-    tool_result_part,
-    tool,
+        Agent,
+        Model,
+        Tool,
+        Context,
+        user_message,
+        assistant_message,
+        system_message,
+        text_part,
+        tool_message,
+        tool_result_part,
+        tool,
     )
     from ai.providers import OpenAICompatibleProvider
     from ai.types.messages import ToolCallPart, ToolResultPart
     from ai.types.events import ToolStart, ToolEnd, TextStart, TextEnd, ToolCallResult
 except ImportError:  # The optional reasoning adapter must not break CLI/imports.
     Agent = Model = Tool = Context = None
-    user_message = assistant_message = system_message = text_part = tool_message = tool_result_part = tool = None
-    OpenAICompatibleProvider = ToolCallPart = ToolResultPart = ToolStart = ToolEnd = TextStart = TextEnd = ToolCallResult = None
+    user_message = assistant_message = system_message = text_part = tool_message = (
+        tool_result_part
+    ) = tool = None
+    OpenAICompatibleProvider = ToolCallPart = ToolResultPart = ToolStart = ToolEnd = TextStart = (
+        TextEnd
+    ) = ToolCallResult = None
 
 from ..core.config import get_config
 from ..deployment.deployer import Deployer, DeploymentResult
 from ..deployment.ssh_executor import SSHExecutor, SSHResult
-from ..discovery.network_discovery import NetworkDiscovery, DeviceInfo
+from ..discovery.network_discovery import NetworkDiscovery
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -89,7 +91,9 @@ class AIReasoningLayer:
     def _build_model(self) -> Model:
         """Construct a Model backed by the OpenAI-compatible provider."""
         if Model is None:
-            raise RuntimeError("AI reasoning adapter is not installed; install the optional AI extra")
+            raise RuntimeError(
+                "AI reasoning adapter is not installed; install the optional AI extra"
+            )
         if not self.model_id:
             raise RuntimeError(
                 "AI model not configured. Set ai.model in config/agent_config.json "
@@ -116,7 +120,9 @@ class AIReasoningLayer:
     def _build_agent(self) -> Agent:
         """Build an Agent whose tools delegate to the wired components."""
         if Agent is None:
-            raise RuntimeError("AI reasoning adapter is not installed; install the optional AI extra")
+            raise RuntimeError(
+                "AI reasoning adapter is not installed; install the optional AI extra"
+            )
         deployer = self._deployer
         ssh = self._ssh_executor
         discovery = self._network_discovery
@@ -149,12 +155,15 @@ class AIReasoningLayer:
             (which has an "analysis" key) or just the analysis sub-dict."""
             logger.info("AI tool: generate_deployment_config()")
             # Accept either the full result dict or just the analysis sub-dict
-            analysis = repo_analysis.get("analysis", repo_analysis) if isinstance(repo_analysis, dict) else repo_analysis
-            # Wrap the analysis dict in an SSHResult-like object the Deployer expects
-            class _AnalysisWrapper:
-                def __init__(self, data):
-                    self.stdout = json.dumps(data)
-            docker_config = await deployer.generate_docker_config(_AnalysisWrapper(analysis))
+            analysis = (
+                repo_analysis.get("analysis", repo_analysis)
+                if isinstance(repo_analysis, dict)
+                else repo_analysis
+            )
+
+            docker_config = await deployer.generate_docker_config(
+                SSHResult(success=True, stdout=json.dumps(analysis))
+            )
             return {
                 "success": True,
                 "dockerfile": docker_config.get("dockerfile", ""),
@@ -294,4 +303,3 @@ class AIReasoningLayer:
             github_url, target_device_ip
         )
         return result.to_dict()
-

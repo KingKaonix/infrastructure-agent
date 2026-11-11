@@ -3,8 +3,7 @@
 import asyncio
 import json
 import logging
-import subprocess
-from typing import Dict, List, Any, Optional
+from typing import Dict, Any
 from pathlib import Path
 import os
 import uuid
@@ -19,8 +18,13 @@ logger = logging.getLogger(__name__)
 class DeploymentResult:
     """Result from a deployment operation"""
 
-    def __init__(self, success: bool, message: str = "",
-                 docker_container_id: str = "", health_check: bool = True):
+    def __init__(
+        self,
+        success: bool,
+        message: str = "",
+        docker_container_id: str = "",
+        health_check: bool = True,
+    ):
         self.success = success
         self.message = message
         self.docker_container_id = docker_container_id
@@ -31,7 +35,7 @@ class DeploymentResult:
             "success": self.success,
             "message": self.message,
             "docker_container_id": self.docker_container_id,
-            "health_check": self.health_check
+            "health_check": self.health_check,
         }
 
 
@@ -41,11 +45,14 @@ class Deployer:
     def __init__(self, ssh_executor=None):
         self.config = get_config()
         self.ssh_executor = ssh_executor
-        self.temp_dir = Path(__file__).resolve().parents[3] / "state" / "deployments" / f"deploy_{os.getpid()}"
+        self.temp_dir = (
+            Path(__file__).resolve().parents[3] / "state" / "deployments" / f"deploy_{os.getpid()}"
+        )
         self.temp_dir.mkdir(parents=True, exist_ok=True)
 
-    async def deploy_from_github(self, github_url: str,
-                                 target_device_ip: str = None) -> DeploymentResult:
+    async def deploy_from_github(
+        self, github_url: str, target_device_ip: str = None
+    ) -> DeploymentResult:
         """
         Deploy an application from a GitHub URL.
         Automatically detects stack type and generates Docker configuration.
@@ -55,7 +62,9 @@ class Deployer:
         # Step 1: Analyze the repository to detect stack type
         repo_analysis = await self.analyze_repository(github_url)
         if not repo_analysis.success:
-            return DeploymentResult(success=False, message=f"Failed to analyze repository: {repo_analysis.stderr}")
+            return DeploymentResult(
+                success=False, message=f"Failed to analyze repository: {repo_analysis.stderr}"
+            )
 
         # Step 2: Generate Docker configuration based on detected stack
         docker_config = await self.generate_docker_config(repo_analysis)
@@ -85,25 +94,31 @@ class Deployer:
         logger.info(f"Analyzing repository: {github_url}")
 
         # Clone the repository
-        repo_name = github_url.rstrip('/').split('/')[-1]
+        repo_name = github_url.rstrip("/").split("/")[-1]
         clone_dir = self.temp_dir / repo_name
 
         try:
             # Remove if exists
             if clone_dir.exists():
                 import shutil
+
                 shutil.rmtree(clone_dir)
 
             # Clone the repo
             proc = await asyncio.create_subprocess_exec(
-                "git", "clone", github_url, str(clone_dir),
+                "git",
+                "clone",
+                github_url,
+                str(clone_dir),
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                stderr=asyncio.subprocess.PIPE,
             )
             stdout, stderr = await proc.communicate()
 
             if proc.returncode != 0:
-                return SSHResult(success=False, stderr=f"Failed to clone repository: {stderr.decode()}")
+                return SSHResult(
+                    success=False, stderr=f"Failed to clone repository: {stderr.decode()}"
+                )
 
         except Exception as e:
             return SSHResult(success=False, stderr=f"Error cloning repository: {str(e)}")
@@ -124,7 +139,7 @@ class Deployer:
             "dockerfile": None,
             "docker_compose": None,
             "build_command": None,
-            "start_command": None
+            "start_command": None,
         }
 
         # Check for common indicators
@@ -136,6 +151,7 @@ class Deployer:
             package_json = repo_path / "package.json"
             if package_json.exists():
                 import json
+
                 try:
                     with open(package_json) as f:
                         pkg = json.load(f)
@@ -180,8 +196,9 @@ class Deployer:
 
         return analysis
 
-    async def generate_basic_docker_config(self, repo_path: Path,
-                                          analysis: Dict[str, Any]) -> Dict[str, Any]:
+    async def generate_basic_docker_config(
+        self, repo_path: Path, analysis: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """Generate basic Docker configuration for detected stack"""
         language = analysis.get("language", "unknown")
 
@@ -276,8 +293,6 @@ CMD ["sh", "-c", "echo 'Hello from Docker'"]
         import json
 
         data = json.loads(repo_analysis.stdout)
-        repo_path = self.temp_dir / data.get("repo_name", "app")
-
         # If Dockerfile/docker-compose already exist, use them
         if data.get("dockerfile") and Path(data["dockerfile"]).exists():
             with open(data["dockerfile"]) as f:
@@ -403,8 +418,9 @@ CMD ["sh", "-c", "echo 'Hello from Docker'"]
     restart: unless-stopped
 """
 
-    async def deploy_to_device(self, device_ip: str,
-                                docker_config: Dict[str, Any]) -> DeploymentResult:
+    async def deploy_to_device(
+        self, device_ip: str, docker_config: Dict[str, Any]
+    ) -> DeploymentResult:
         """Deploy Docker application to a specific device"""
         logger.info(f"Deploying to device: {device_ip}")
 
@@ -415,29 +431,31 @@ CMD ["sh", "-c", "echo 'Hello from Docker'"]
             ssh_connected = await self.ssh_executor.connect(device_ip)
             if not ssh_connected:
                 return DeploymentResult(
-                    success=False,
-                    message=f"Could not establish SSH connection to {device_ip}"
+                    success=False, message=f"Could not establish SSH connection to {device_ip}"
                 )
 
             # Check if Docker is available
-            check_result = await self.ssh_executor.execute_command(
-                device_ip, "docker --version"
-            )
+            check_result = await self.ssh_executor.execute_command(device_ip, "docker --version")
             if not check_result.success:
                 return DeploymentResult(
-                    success=False,
-                    message=f"Docker not found on {device_ip}: {check_result.stderr}"
+                    success=False, message=f"Docker not found on {device_ip}: {check_result.stderr}"
                 )
 
             # The build context must contain application source, not only config files.
             dockerfile_content = docker_config.get("dockerfile", "")
             compose_content = docker_config.get("docker_compose", "")
-            mkdir_result = await self.ssh_executor.execute_command(device_ip, f"mkdir -p {remote_dir}")
+            mkdir_result = await self.ssh_executor.execute_command(
+                device_ip, f"mkdir -p {remote_dir}"
+            )
             if not mkdir_result.success:
-                return DeploymentResult(False, f"Could not create deployment directory: {mkdir_result.stderr}")
+                return DeploymentResult(
+                    False, f"Could not create deployment directory: {mkdir_result.stderr}"
+                )
             source_url = docker_config.get("repository_url")
             if source_url:
-                clone = await self.ssh_executor.execute_command(device_ip, f"git clone --depth 1 {source_url} {remote_dir}/source")
+                clone = await self.ssh_executor.execute_command(
+                    device_ip, f"git clone --depth 1 {source_url} {remote_dir}/source"
+                )
                 if not clone.success:
                     return DeploymentResult(False, f"Source checkout failed: {clone.stderr}")
                 context = f"{remote_dir}/source"
@@ -446,67 +464,73 @@ CMD ["sh", "-c", "echo 'Hello from Docker'"]
 
             # Write Dockerfile
             await self.ssh_executor.execute_command(
-                device_ip,
-                f"cat > {context}/Dockerfile << 'EOF'\n{dockerfile_content}\nEOF"
+                device_ip, f"cat > {context}/Dockerfile << 'EOF'\n{dockerfile_content}\nEOF"
             )
 
             # Write docker-compose.yml
             await self.ssh_executor.execute_command(
-                device_ip,
-                f"cat > {context}/docker-compose.yml << 'EOF'\n{compose_content}\nEOF"
+                device_ip, f"cat > {context}/docker-compose.yml << 'EOF'\n{compose_content}\nEOF"
             )
 
             # Build and start the container
             build_result = await self.ssh_executor.execute_command(
-                device_ip,
-                f"cd {context} && docker compose build"
+                device_ip, f"cd {context} && docker compose build"
             )
 
             if not build_result.success:
-                await self.ssh_executor.execute_command(device_ip, f"cd {context} && docker compose down --remove-orphans")
+                await self.ssh_executor.execute_command(
+                    device_ip, f"cd {context} && docker compose down --remove-orphans"
+                )
                 return DeploymentResult(
                     success=False,
-                    message=f"Docker build failed on {device_ip}: {build_result.stderr}"
+                    message=f"Docker build failed on {device_ip}: {build_result.stderr}",
                 )
 
             # Start the container
             start_result = await self.ssh_executor.execute_command(
-                device_ip,
-                f"cd {context} && docker compose up -d"
+                device_ip, f"cd {context} && docker compose up -d"
             )
 
             if not start_result.success:
-                await self.ssh_executor.execute_command(device_ip, f"cd {context} && docker compose down --remove-orphans")
+                await self.ssh_executor.execute_command(
+                    device_ip, f"cd {context} && docker compose down --remove-orphans"
+                )
                 return DeploymentResult(
                     success=False,
-                    message=f"Docker compose up failed on {device_ip}: {start_result.stderr}"
+                    message=f"Docker compose up failed on {device_ip}: {start_result.stderr}",
                 )
 
             # Health check
             health_result = await self.wait_for_health(device_ip, context=context)
 
             if not health_result.success:
-                await self.ssh_executor.execute_command(device_ip, f"cd {context} && docker compose down --remove-orphans")
+                await self.ssh_executor.execute_command(
+                    device_ip, f"cd {context} && docker compose down --remove-orphans"
+                )
 
             return DeploymentResult(
                 success=start_result.success,
                 message="Deployment successful" if start_result.success else start_result.stderr,
                 docker_container_id=start_result.stdout[:12] if start_result.stdout else "",
-                health_check=health_result.success
+                health_check=health_result.success,
             )
 
         except Exception as e:
             logger.error(f"Deployment error to {device_ip}: {e}")
             return DeploymentResult(success=False, message=str(e))
 
-    async def wait_for_health(self, device_ip: str, timeout: int = 60, context: str = "") -> SSHResult:
+    async def wait_for_health(
+        self, device_ip: str, timeout: int = 60, context: str = ""
+    ) -> SSHResult:
         """Wait for deployed container to become healthy"""
         start = asyncio.get_event_loop().time()
 
         while asyncio.get_event_loop().time() - start < timeout:
             result = await self.ssh_executor.execute_command(
                 device_ip,
-                f"cd {context} && docker compose ps --format '{{{{.Service}}}} {{{{.Health}}}}'" if context else "docker compose ps --format '{{.Service}} {{.Health}}'"
+                f"cd {context} && docker compose ps --format '{{{{.Service}}}} {{{{.Health}}}}'"
+                if context
+                else "docker compose ps --format '{{.Service}} {{.Health}}'",
             )
             if result.success and result.stdout.strip():
                 return SSHResult(success=True, stdout=result.stdout)
@@ -517,7 +541,6 @@ CMD ["sh", "-c", "echo 'Hello from Docker'"]
     async def cleanup_old_containers(self, device_ip: str) -> SSHResult:
         """Clean up old/dangling containers"""
         result = await self.ssh_executor.execute_command(
-            device_ip,
-            "docker system prune -f --volumes"
+            device_ip, "docker system prune -f --volumes"
         )
         return result

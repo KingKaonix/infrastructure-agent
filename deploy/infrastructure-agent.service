@@ -1,0 +1,22 @@
+[Unit]
+Description=Infrastructure Agent LAN administrator
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=infrastructure-agent
+Group=infrastructure-agent
+WorkingDirectory=/var/lib/infrastructure-agent
+EnvironmentFile=-/etc/infrastructure-agent/agent.env
+ExecStart=/usr/local/bin/infrastructure-agent
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/infrastructure-agent
+
+[Install]
+WantedBy=multi-user.target

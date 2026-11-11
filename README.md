@@ -2,7 +2,7 @@
 
 Infrastructure Agent is a Python 3.12+ CLI for safely managing Docker workloads and SSH-accessible devices on a LAN. It combines bounded network discovery, policy-controlled remote execution, repository analysis, deployment health checks, optimization recommendations, and an append-only SQLite audit trail.
 
-> **Status:** early foundation release. Packaging, the CLI lifecycle, safety boundaries, deployment pipeline, and validation suite are working; Telegram, cloud plugins, and a production AI tool-use adapter are planned work.
+> **Status:** early operational release. Packaging, the CLI lifecycle, safety boundaries, deployment pipeline, SQLite state, OpenAI-compatible tool dispatch, and validation suite are working. Telegram transport and cloud plugins remain planned.
 
 ## What is implemented
 
@@ -15,6 +15,7 @@ Infrastructure Agent is a Python 3.12+ CLI for safely managing Docker workloads 
 - Read-only-by-default performance observations using machine-readable metrics. Cleanup is recommendation-only unless explicitly approved.
 - SQLite audit records for remote actions and outcomes.
 - GitHub Actions on pushes, pull requests, manual runs, and a weekly scheduled validation.
+- A systemd unit and LAN operator runbook for running the daemon continuously.
 
 ## Install
 
@@ -46,6 +47,7 @@ infrastructure-agent deploy https://github.com/example/app 192.168.1.20
 infrastructure-agent optimize 192.168.1.20
 infrastructure-agent audit --limit 25
 infrastructure-agent serve --host 127.0.0.1 --port 8000
+infrastructure-agent telegram
 ```
 
 The AI reasoning adapter is optional at runtime. Configure an OpenAI-compatible endpoint through environment variables before using natural-language requests:
@@ -54,6 +56,7 @@ The AI reasoning adapter is optional at runtime. Configure an OpenAI-compatible 
 export OPENAI_API_KEY="..."
 export INFRA_AGENT_AI_BASE_URL="https://your-endpoint.example/v1"
 export INFRA_AGENT_AI_MODEL="your-model"
+export INFRA_TELEGRAM_BOT_TOKEN="..."
 ```
 
 No secret is written to JSON configuration. SSH credentials and host verification can be configured with `INFRA_AGENT_SSH_USERNAME`, `INFRA_AGENT_SSH_KEY`, and `INFRA_AGENT_SSH_KNOWN_HOSTS`.
@@ -105,12 +108,11 @@ The thin FastAPI adapter is created with `infrastructure_agent.api.create_app()`
 - `POST /ssh` with `{ "target", "command", "approved" }`
 - `POST /deploy` with `{ "repository", "target" }`
 
-`infrastructure_agent.telegram.TelegramCommandHandler` provides the shared command handling for `/status`, `/discover`, `/ssh`, `/deploy`, and `/optimize`. A Telegram transport can be attached without duplicating service or policy logic.
+`infrastructure_agent.telegram.TelegramCommandHandler` provides the shared command handling for `/status`, `/discover`, `/ssh`, `/deploy`, and `/optimize`. A Telegram transport can be attached without duplicating service or policy logic. See [docs/RUNBOOK.md](docs/RUNBOOK.md) for continuous-host installation.
 
 ## Roadmap
 
-1. Expand SQLite inventory and persisted deployment/optimization history.
-2. Add a production-ready OpenAI-compatible tool-use adapter with approval propagation.
-3. Add FastAPI health/status endpoints.
-4. Add Telegram commands through the shared service layer.
-5. Add cloud/provider plugins after the LAN inventory contract is stable.
+1. Add a real Telegram webhook/polling transport and authentication.
+2. Add richer discovery backends (ARP, mDNS, and optional nmap adapters).
+3. Run live model, SSH, Docker, and LAN acceptance tests on a disposable lab device.
+4. Add cloud/provider plugins after the LAN inventory contract is stable.

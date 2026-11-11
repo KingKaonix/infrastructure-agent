@@ -23,6 +23,7 @@ def build_parser() -> argparse.ArgumentParser:
     serve = commands.add_parser("serve", help="Run the FastAPI status/control service")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8000)
+    commands.add_parser("telegram", help="Run the allowlisted Telegram bot transport")
     ssh = commands.add_parser("ssh", help="Execute a policy-controlled SSH command")
     ssh.add_argument("target")
     ssh.add_argument("remote_command", nargs=argparse.REMAINDER)
@@ -93,6 +94,16 @@ async def async_main(argv: Sequence[str] | None = None) -> int:
                 )
             )
             await server.serve()
+        elif args.command == "telegram":
+            import os
+            from infrastructure_agent.telegram import TelegramBotTransport, TelegramCommandHandler
+
+            handler = TelegramCommandHandler(
+                discovery=discovery, ssh=ssh, deployer=deployer, optimizer=optimizer
+            )
+            token = os.getenv("INFRA_TELEGRAM_BOT_TOKEN", "")
+            allowed = config.get("telegram.allowed_chat_ids", [])
+            await TelegramBotTransport(token, handler, allowed_chat_ids=allowed).run()
         elif args.command == "ssh":
             if not args.remote_command:
                 raise SystemExit("ssh requires a command")

@@ -21,19 +21,19 @@ fi
 install -d -o "${SERVICE_USER}" -g "${SERVICE_USER}" -m 0750 "${STATE_DIR}"
 install -d -o root -g "${SERVICE_USER}" -m 0750 "${ENV_DIR}"
 
-if [[ ! -x "${STATE_DIR}/.venv/bin/python" ]]; then
-  UV_BIN="$(command -v uv || true)"
-  if [[ -z "${UV_BIN}" && -x /home/kaos/.local/bin/uv ]]; then
-    UV_BIN=/home/kaos/.local/bin/uv
-  fi
-  if [[ -n "${UV_BIN}" ]]; then
+UV_BIN="$(command -v uv || true)"
+if [[ -z "${UV_BIN}" && -x /home/kaos/.local/bin/uv ]]; then
+  UV_BIN=/home/kaos/.local/bin/uv
+fi
+if [[ -n "${UV_BIN}" ]]; then
+  if [[ ! -x "${STATE_DIR}/.venv/bin/python" ]]; then
     "${UV_BIN}" venv --python python3 "${STATE_DIR}/.venv"
-    "${UV_BIN}" pip install --python "${STATE_DIR}/.venv/bin/python" "${REPO_DIR}"
-  else
+  fi
+  "${UV_BIN}" pip install --python "${STATE_DIR}/.venv/bin/python" "${REPO_DIR}"
+elif [[ ! -x "${STATE_DIR}/.venv/bin/python" ]]; then
     python3 -m venv "${STATE_DIR}/.venv"
     "${STATE_DIR}/.venv/bin/python" -m pip install --upgrade pip
     "${STATE_DIR}/.venv/bin/python" -m pip install "${REPO_DIR}"
-  fi
 else
   "${STATE_DIR}/.venv/bin/python" -m pip install "${REPO_DIR}"
 fi

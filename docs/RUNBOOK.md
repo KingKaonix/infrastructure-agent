@@ -38,6 +38,13 @@ The installer creates a locked system account, a private virtual environment,
 and a hardened systemd unit. It does not copy SSH private keys or API secrets;
 provision those separately as the `infrastructure-agent` user.
 
+To provision the local self-management SSH key and host verification in one
+idempotent step:
+
+```bash
+sudo deploy/provision-system-credentials.sh 192.168.12.229
+```
+
 Before starting, edit `/etc/infrastructure-agent/agent.env`, provision the SSH
 key and `known_hosts`, and set an explicit LAN CIDR in the agent config. Do not
 put API keys or passwords in the JSON config or commit them to Git.

@@ -1,0 +1,4 @@
+# Replace ACTIONS_RUNNER_USER with the account running the GitHub self-hosted runner.
+# Install as /etc/sudoers.d/infrastructure-agent-actions and validate with visudo.
+# The helper and provisioner are installed root-owned by install-system-service.sh.
+ACTIONS_RUNNER_USER ALL=(root) NOPASSWD: /usr/local/sbin/infrastructure-agent-actions

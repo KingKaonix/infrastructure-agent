@@ -1,0 +1,40 @@
+name: LAN operations
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Operation to run on the LAN host
+        required: true
+        default: verify
+        type: choice
+        options:
+          - status
+          - verify
+          - repair
+      target_ip:
+        description: SSH target used by repair
+        required: false
+        default: 192.168.12.229
+        type: string
+  schedule:
+    - cron: "*/30 * * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lan-operations
+  cancel-in-progress: false
+
+jobs:
+  operate:
+    runs-on: [self-hosted, linux, lan-admin]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify or repair LAN administrator
+        env:
+          REQUESTED_ACTION: ${{ inputs.action || 'status' }}
+          TARGET_IP: ${{ inputs.target_ip || '192.168.12.229' }}
+        run: sudo -n /usr/local/sbin/infrastructure-agent-actions "$REQUESTED_ACTION" "$TARGET_IP"

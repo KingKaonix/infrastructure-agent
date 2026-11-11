@@ -70,6 +70,15 @@ infrastructure-agent audit --limit 20
 journalctl -u infrastructure-agent -f
 ```
 
+### GitHub Actions on the LAN host
+
+GitHub-hosted runners cannot reach a private LAN. Install a GitHub
+self-hosted runner on the administrator host with labels `self-hosted`,
+`linux`, and `lan-admin`, then grant that runner only the commands in
+`deploy/infrastructure-agent-actions.sudoers.example`. The scheduled
+`.github/workflows/lan-operations.yml` workflow will then run status checks
+every 30 minutes and supports manual `verify` and `repair` dispatches.
+
 The daemon performs periodic discovery, read-only optimization observations,
 and (when configured) local OpenCode or OpenAI-compatible model reviews.
 Destructive commands remain blocked until an operator explicitly approves them.

@@ -44,6 +44,13 @@ if [[ ! -e "${ENV_DIR}/agent.env" ]]; then
 fi
 install -o root -g root -m 0644 "${REPO_DIR}/deploy/infrastructure-agent.service" \
   /etc/systemd/system/infrastructure-agent.service
+install -d -o root -g root -m 0755 /usr/local/lib/infrastructure-agent
+install -o root -g root -m 0755 "${REPO_DIR}/deploy/provision-system-credentials.sh" \
+  /usr/local/lib/infrastructure-agent/provision-system-credentials.sh
+install -o root -g root -m 0755 "${REPO_DIR}/deploy/lan-agent-actions.sh" \
+  /usr/local/lib/infrastructure-agent/lan-agent-actions.sh
+ln -sfn /usr/local/lib/infrastructure-agent/lan-agent-actions.sh \
+  /usr/local/sbin/infrastructure-agent-actions
 
 systemctl daemon-reload
 systemctl enable --now infrastructure-agent.service

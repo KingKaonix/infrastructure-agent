@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "infrastructure-agent"
+version = "0.1.0"
+description = "AI-powered IT administrator agent for autonomous infrastructure management"
+requires-python = ">=3.12"
+dependencies = [
+    "asyncssh>=2.14,<3",
+    "fastapi>=0.110,<1",
+    "uvicorn>=0.29,<1",
+    "openai>=1.30,<2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "ruff",
+    "mypy",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["infrastructure_agent*"]
+
+[project.scripts]
+infrastructure-agent = "infrastructure_agent.main:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"

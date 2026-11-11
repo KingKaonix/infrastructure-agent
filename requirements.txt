@@ -1,0 +1,2 @@
+# Compatibility requirements file. Canonical metadata lives in pyproject.toml.
+-e .

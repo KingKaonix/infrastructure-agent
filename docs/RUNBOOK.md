@@ -28,16 +28,15 @@ available. A root-managed service is the alternative for unattended hosts.
 
 For a dedicated system account, use the root service below.
 
+From the checkout, run the installer (it requires `sudo`):
+
 ```bash
-sudo useradd --system --home /var/lib/infrastructure-agent infrastructure-agent
-sudo install -d -o infrastructure-agent -g infrastructure-agent /var/lib/infrastructure-agent
-sudo python -m pip install --prefix /usr/local .
-sudo install -d -m 0750 /etc/infrastructure-agent
-sudo install -o root -g infrastructure-agent -m 0640 deploy/agent.env.example /etc/infrastructure-agent/agent.env
-sudo install -o root -g root -m 0644 deploy/infrastructure-agent.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now infrastructure-agent
+sudo deploy/install-system-service.sh "$PWD"
 ```
+
+The installer creates a locked system account, a private virtual environment,
+and a hardened systemd unit. It does not copy SSH private keys or API secrets;
+provision those separately as the `infrastructure-agent` user.
 
 Before starting, edit `/etc/infrastructure-agent/agent.env`, provision the SSH
 key and `known_hosts`, and set an explicit LAN CIDR in the agent config. Do not

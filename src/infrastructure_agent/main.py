@@ -170,6 +170,7 @@ async def async_main(argv: Sequence[str] | None = None) -> int:
                 ai_layer=AIReasoningLayer(),
                 deployer=deployer,
                 ssh=ssh,
+                audit=audit,
             )
             background = [asyncio.create_task(supervisor.run())]
             print("Infrastructure Agent daemon running. Press Ctrl-C to stop.")

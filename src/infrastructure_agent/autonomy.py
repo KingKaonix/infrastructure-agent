@@ -8,6 +8,7 @@ import logging
 from typing import Any
 
 from .ai_layer.ai_reasoning import AIReasoningLayer
+from .core.audit import AuditLog
 from .core.config import get_config
 from .deployment.deployer import Deployer
 from .deployment.ssh_executor import SSHExecutor
@@ -32,6 +33,7 @@ class AutonomousSupervisor:
         ai_layer: AIReasoningLayer | None = None,
         deployer: Deployer | None = None,
         ssh: SSHExecutor | None = None,
+        audit: AuditLog | None = None,
         interval: int | None = None,
     ) -> None:
         self.discovery = discovery
@@ -40,6 +42,7 @@ class AutonomousSupervisor:
         self.deployer = deployer
         self.ssh = ssh
         config = get_config()
+        self.audit = audit or AuditLog(config.get("state.database", "state/agent.db"))
         self.interval = interval or int(config.get("autonomy", {}).get("review_interval", 1800))
         self.enabled = bool(config.get("autonomy", {}).get("enabled", True))
         self._stop_event = asyncio.Event()
@@ -62,10 +65,22 @@ class AutonomousSupervisor:
                 summary["ai_review"] = await self.ai_layer.process_request(
                     prompt, self.deployer, self.ssh, self.discovery
                 )
+                self.audit.record(
+                    "ai.review",
+                    actor="autonomy",
+                    outcome="success",
+                    details={"review": str(summary["ai_review"])[:4000]},
+                )
                 logger.info("Autonomous AI review complete: %s", summary["ai_review"])
             except Exception as exc:
                 logger.warning("Autonomous AI review skipped: %s", exc)
                 summary["ai_review"] = {"skipped": str(exc)}
+                self.audit.record(
+                    "ai.review",
+                    actor="autonomy",
+                    outcome="skipped",
+                    details={"error": str(exc)[:1000]},
+                )
         return summary
 
     async def run(self) -> None:

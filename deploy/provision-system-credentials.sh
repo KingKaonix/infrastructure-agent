@@ -4,10 +4,10 @@ set -euo pipefail
 SERVICE_USER="infrastructure-agent"
 TARGET_USER="${SUDO_USER:-kaos}"
 TARGET_IP="${1:-192.168.12.229}"
-COPY_OPENCODE=0
+COPY_OPENCODE=1
 for argument in "$@"; do
-  if [[ "${argument}" == "--enable-local-opencode" ]]; then
-    COPY_OPENCODE=1
+  if [[ "${argument}" == "--no-local-opencode" ]]; then
+    COPY_OPENCODE=0
   fi
 done
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"

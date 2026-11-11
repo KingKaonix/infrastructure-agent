@@ -45,12 +45,13 @@ idempotent step:
 sudo deploy/provision-system-credentials.sh 192.168.12.229
 ```
 
-If the host already has a working OpenCode local model, include the explicit
-flag below. It copies only the standalone binary and its service connection
-metadata into the locked service account, with the metadata kept mode 0600:
+If the host already has a working OpenCode local model, the provisioning script
+automatically copies only the standalone binary and its service connection
+metadata into the locked service account, with the metadata kept mode 0600.
+Use `--no-local-opencode` to opt out:
 
 ```bash
-sudo deploy/provision-system-credentials.sh 192.168.12.229 --enable-local-opencode
+sudo deploy/provision-system-credentials.sh 192.168.12.229 --no-local-opencode
 ```
 
 Before starting, edit `/etc/infrastructure-agent/agent.env`, provision the SSH

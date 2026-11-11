@@ -1,115 +1,98 @@
 # Infrastructure Agent
 
-An always-on, AI-powered IT administrator for your machines and networks.
+Infrastructure Agent is a Python 3.12+ CLI for safely managing Docker workloads and SSH-accessible devices on a LAN. It combines bounded network discovery, policy-controlled remote execution, repository analysis, deployment health checks, optimization recommendations, and an append-only SQLite audit trail.
 
-**Status:** 🟡 Planning phase — scaffold exists, not yet functional. See [docs/PLAN.md](docs/PLAN.md).
+> **Status:** early foundation release. Packaging, the CLI lifecycle, safety boundaries, deployment pipeline, and validation suite are working; Telegram, cloud plugins, and a production AI tool-use adapter are planned work.
 
----
+## What is implemented
 
-## Config decisions (locked by user)
+- Installable `src/` package with the `infrastructure-agent` console command.
+- Import-safe CLI: `--help` does not create logs, config files, network tasks, or connections.
+- SSH with `known_hosts` verification, key/password authentication, bounded retries, timeouts, target allowlists, and command auditing.
+- Explicit command policy: destructive actions such as Docker prune, service stop/restart, package removal, `rm -rf`, and filesystem formatting require approval.
+- Repository analysis and Docker deployment with unique remote directories, source checkout, build/start health checks, and rollback on failure.
+- LAN discovery with explicit ranges, concurrency limits, per-host timeouts, cancellation, and bounded inventory behavior.
+- Read-only-by-default performance observations using machine-readable metrics. Cleanup is recommendation-only unless explicitly approved.
+- SQLite audit records for remote actions and outcomes.
+- GitHub Actions on pushes, pull requests, manual runs, and a weekly scheduled validation.
 
-| Decision | Value |
-|----------|-------|
-| AI provider | OpenAI-compatible endpoint — Omniroute server (provider-agnostic) |
-| User interface | CLI + Telegram bot |
-| Discovery scope | LAN only for now |
-| Extensibility | Plugin system for major cloud/VM providers (AWS, GCP, DigitalOcean, etc.) — built in from Phase 1 |
-| Autonomy | Full IT-admin autonomy; agent asks user only when genuinely stuck or about to do something destructive |
+## Install
 
----
+Requires Python 3.12 or newer.
 
-## What this is
-
-A single agent that runs 24/7 on one machine and manages **every** machine and device on your **LAN** as your IT administrator would:
-
-- **Discovers** all devices on LAN (via nmap/ARP/mDNS)
-- **Executes** any admin command via SSH — updates, packages, services, networking, containers, GPU drivers, file transfers — same surface an IT admin has
-- **Deploys** apps from a GitHub link with almost no input: clones the repo, reads it, figures out the stack, writes Docker config, deploys, verifies health
-- **Optimizes** continuously: CPU, memory, disk I/O, application response time, and cost
-- **Asks you** only when it's genuinely stuck or about to do something destructive
-
-Operation is **hybrid**: a background daemon that's always looking for things to improve, plus on-demand requests from you (CLI or Telegram bot).
-
-### Interface
-
-- **CLI**: `infrastructure-agent` command and direct SSH execution
-- **Telegram bot**: `/deploy <github_url>`, `/status`, `/optimize`, `/ssh <device> <command>`
-
----
-
-## What it is NOT
-
-- Not a multi-tenant platform — single admin (you)
-- Not a replacement for your existing CI/CD — it complements it
-- Not a dashboard-first product — it's CLI/chat-driven
-
----
-
-## Requirements you've stated
-
-1. All machines and devices on the network (LAN only for now)
-2. Hybrid operation: background optimization + on-demand requests
-3. Figures things out autonomously; asks when it needs input
-4. Full IT-admin command surface via SSH
-5. Tracks all performance metrics + cost
-6. No access constraints — every device is available
-7. Full autonomy: take over
-8. Nothing pre-existing to integrate with
-9. OpenAI-compatible provider (Omniroute server, extensible to any)
-10. Plugin system for cloud/VM provider extensibility (future phases)
-11. Telegram bot interface for remote management
-
----
-
-## Architecture (target)
-
-```
-                    ┌──────────────────────────────┐
-                    │   User interface (CLI / Telegram)   │
-                    └──────────────┬───────────────┘
-                                   │
-                    ┌──────────────▼───────────────┐
-                    │     AI reasoning layer       │  ← LLM tool-use loop
-                    │   (decides WHAT to do)       │
-                    │   uses OpenAI-compatible provider │
-                    └──────────────┬───────────────┘
-                                   │
-      ┌────────┬────────┬─────────┼─────────┬────────┐
-      ▼        ▼         ▼         ▼         ▼        ▼
-  Discovery  SSH     Deployer  Optimizer  State    Audit
-  (nmap/ARP) (async- (Docker/  (metrics, (SQLite) (log)
-              ssh)    github)   tuning)
+```bash
+python -m pip install .
+# Development tools and tests:
+python -m pip install -e '.[dev]'
 ```
 
-### Components
+For an isolated development environment, [uv](https://docs.astral.sh/uv/) works well:
 
-1. **Network Discovery** — scans LAN for devices, identifies OS, open ports, SSH reachability. LAN-only for now; plugin system added in Phase 3+ for cloud VMs.
-2. **SSH Executor** — pooled async SSH connections, key/password/token auth, command/script execution, file transfer, output streaming. This is the "any command" surface.
-3. **AI Reasoning Layer** — the core. An LLM tool-use loop using OpenAI-compatible provider (Omniroute server, provider-agnostic). Reads a GitHub repo, infers the stack, and decides which SSH/Docker commands to run. Wired to CLI + Telegram bot.
-4. **Deployment Engine** — installs Docker if absent, generates/adopts Dockerfile + docker-compose, builds, runs, maps ports/env/volumes, health-checks, rolls back on failure.
-5. **Performance Optimizer** — periodic metric collection across all hosts. Applies safe auto-fixes: pruning unused containers, clearing caches, cleaning logs. Recommends/asks before destructive ones (restart services, downscale).
-6. **State & Audit** — SQLite for inventory, configs, deployment history, optimization decisions. Append-only audit log of every command run and its result.
+```bash
+uv venv
+uv pip install -e '.[dev]'
+```
 
----
+## Run
 
-## Current state vs. target
+```bash
+infrastructure-agent --help
+infrastructure-agent --request "show the status of 192.168.1.20"
+infrastructure-agent --interactive
+```
 
-The scaffold that exists covers rough drafts of components 1, 2, 4, 5 — but is **not importable, not installable, and has no AI layer** (component 3, the heart of the request). See `docs/PLAN.md` Phase 0 for the cleanup required before real building starts.
+The AI reasoning adapter is optional at runtime. Configure an OpenAI-compatible endpoint through environment variables before using natural-language requests:
 
----
+```bash
+export OPENAI_API_KEY="..."
+export INFRA_AGENT_AI_BASE_URL="https://your-endpoint.example/v1"
+export INFRA_AGENT_AI_MODEL="your-model"
+```
 
-## Getting there
+No secret is written to JSON configuration. SSH credentials and host verification can be configured with `INFRA_AGENT_SSH_USERNAME`, `INFRA_AGENT_SSH_KEY`, and `INFRA_AGENT_SSH_KNOWN_HOSTS`.
 
-1. Phase 0 is done: project structure consolidated, all modules importable
-2. ✅ Import test: `import infrastructure_agent; print('OK')` passes
-3. ✅ CLI test: run `infrastructure-agent` and see startup message
-4. Next: Phase 1 — AI reasoning layer with OpenAI-compatible provider
+## Configuration and state
 
----
+Configuration is read from `config/agent_config.json` by default, or from `INFRA_AGENT_CONFIG`. Missing configuration is kept in memory and is not created during import. Runtime state and audit data are stored under `state/` when components are initialized.
 
-### Config reference (for future phases)
+Important defaults:
 
-- **AI**: Omniroute server URL + API key environment variable, falls back to any OPENAI_API_KEY-compatible setup
-- **Discovery**: LAN-only nmap/ARP/mDNS scans (configurable subnet). Cloud plugin interface defined in Phase 3, implementations optional.
-- **Telegram**: Bot token in `config/telegram_bot_token` (or env var `INFRA_TELEGRAM_BOT_TOKEN`)
-- **Plugins**: Package entry point `infrastructure.plugins` — any module exposing `discover()` / `optimize()` functions auto-loaded
+- Discovery does not scan all RFC1918 space. Set an explicit `network.scan_range` or `network.allowed_subnets`.
+- SSH host-key verification uses `~/.ssh/known_hosts` by default.
+- Destructive optimization and cleanup are disabled by default.
+- Remote commands are audited with actor, target, action, outcome, and details.
+
+Never commit API keys, passwords, private keys, or other credentials.
+
+## Development
+
+```bash
+uv pip install -e '.[dev]'
+ruff format --check src tests
+ruff check src tests
+mypy src
+pytest -q
+```
+
+Tests use fake/local boundaries and do not require a real LAN, SSH host, Docker daemon, GitHub repository, or model endpoint.
+
+## Architecture
+
+```text
+CLI
+ ├─ configuration and lifecycle
+ ├─ discovery ──────── inventory/state
+ ├─ SSH executor ───── policy + audit
+ ├─ deployer ────────── source/build/health/rollback
+ └─ optimizer ──────── observation/recommendation
+```
+
+The CLI is the supported interface today. Future interfaces should call these same service boundaries rather than duplicate SSH or deployment logic.
+
+## Roadmap
+
+1. Expand SQLite inventory and persisted deployment/optimization history.
+2. Add a production-ready OpenAI-compatible tool-use adapter with approval propagation.
+3. Add FastAPI health/status endpoints.
+4. Add Telegram commands through the shared service layer.
+5. Add cloud/provider plugins after the LAN inventory contract is stable.

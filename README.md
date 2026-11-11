@@ -39,6 +39,13 @@ uv pip install -e '.[dev]'
 infrastructure-agent --help
 infrastructure-agent --request "show the status of 192.168.1.20"
 infrastructure-agent --interactive
+infrastructure-agent discover
+infrastructure-agent status
+infrastructure-agent ssh 192.168.1.20 uptime
+infrastructure-agent deploy https://github.com/example/app 192.168.1.20
+infrastructure-agent optimize 192.168.1.20
+infrastructure-agent audit --limit 25
+infrastructure-agent serve --host 127.0.0.1 --port 8000
 ```
 
 The AI reasoning adapter is optional at runtime. Configure an OpenAI-compatible endpoint through environment variables before using natural-language requests:
@@ -88,6 +95,17 @@ CLI
 ```
 
 The CLI is the supported interface today. Future interfaces should call these same service boundaries rather than duplicate SSH or deployment logic.
+
+## HTTP and Telegram adapters
+
+The thin FastAPI adapter is created with `infrastructure_agent.api.create_app()` and exposes:
+
+- `GET /health`
+- `GET /status`
+- `POST /ssh` with `{ "target", "command", "approved" }`
+- `POST /deploy` with `{ "repository", "target" }`
+
+`infrastructure_agent.telegram.TelegramCommandHandler` provides the shared command handling for `/status`, `/discover`, `/ssh`, `/deploy`, and `/optimize`. A Telegram transport can be attached without duplicating service or policy logic.
 
 ## Roadmap
 

@@ -3,12 +3,13 @@
 import asyncio
 import logging
 import ipaddress
+import json
 from typing import Dict, List, Any
 from pathlib import Path
-import json
 from datetime import datetime
 
 from ..core.config import get_config
+from ..core.state import StateRepository
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -42,47 +43,47 @@ class DeviceInfo:
 class NetworkDiscovery:
     """Discovers devices on the network"""
 
-    def __init__(self, *, inventory_path: str | Path | None = None, concurrency: int = 32):
+    def __init__(
+        self,
+        *,
+        inventory_path: str | Path | None = None,
+        state_repository: StateRepository | None = None,
+        concurrency: int = 32,
+    ):
         self.config = get_config()
         self.devices: Dict[str, DeviceInfo] = {}
+        state_path = self.config.get("state", {}).get("database", "state/agent.db")
+        self.state = state_repository or StateRepository(state_path)
         self.discovery_file = (
-            Path(
-                inventory_path
-                or self.config.get("state", {}).get(
-                    "inventory_file", "state/network_inventory.json"
-                )
-            )
-            .expanduser()
-            .resolve()
+            Path(inventory_path).expanduser().resolve() if inventory_path else None
         )
-        self.discovery_file.parent.mkdir(parents=True, exist_ok=True)
         self._stop_event = asyncio.Event()
         self._semaphore = asyncio.Semaphore(concurrency)
         self.load_inventory()
 
     def load_inventory(self) -> None:
         """Load device inventory from file"""
-        if self.discovery_file.exists():
-            with open(self.discovery_file, "r") as f:
-                data = json.load(f)
-                for ip, device_data in data.items():
-                    device = DeviceInfo(
-                        ip=ip,
-                        hostname=device_data.get("hostname", ""),
-                        os=device_data.get("os", ""),
-                        open_ports=device_data.get("open_ports", []),
-                    )
-                    device.ssh_available = device_data.get("ssh_available", False)
-                    device.ssh_username = device_data.get("ssh_username", "")
-                    self.devices[ip] = device
+        for data in self.state.list_devices():
+            device = DeviceInfo(
+                ip=data["ip"],
+                hostname=data.get("hostname", ""),
+                os=data.get("os", ""),
+                open_ports=json.loads(data.get("open_ports", "[]")),
+            )
+            device.ssh_available = bool(data.get("ssh_available", False))
+            self.devices[device.ip] = device
 
     def save_inventory(self) -> None:
         """Save device inventory to file"""
-        data = {}
-        for ip, device in self.devices.items():
-            data[ip] = device.to_dict()
-        with open(self.discovery_file, "w") as f:
-            json.dump(data, f, indent=2)
+        for device in self.devices.values():
+            self.state.upsert_device(
+                device.ip,
+                hostname=device.hostname,
+                os=device.os,
+                open_ports=device.open_ports,
+                ssh_available=device.ssh_available,
+                discovered_at=device.last_seen.isoformat(),
+            )
 
     async def start_discovery(self) -> None:
         """Start periodic network discovery"""

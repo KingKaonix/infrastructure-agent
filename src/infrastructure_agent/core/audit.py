@@ -1,21 +1,16 @@
 """Append-only SQLite audit trail for actions and outcomes."""
 
 from __future__ import annotations
-import json
-import sqlite3
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from .state import StateRepository
 
 
 class AuditLog:
     def __init__(self, path: str | Path = "state/agent.db"):
         self.path = Path(path).expanduser().resolve()
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        with sqlite3.connect(self.path) as db:
-            db.execute(
-                "CREATE TABLE IF NOT EXISTS audit_events (id INTEGER PRIMARY KEY, created_at TEXT NOT NULL, actor TEXT NOT NULL, action TEXT NOT NULL, target TEXT, outcome TEXT NOT NULL, details TEXT NOT NULL)"
-            )
+        self.repository = StateRepository(self.path)
 
     def record(
         self,
@@ -26,18 +21,18 @@ class AuditLog:
         outcome: str = "started",
         details: Any = None,
     ) -> int:
-        with sqlite3.connect(self.path) as db:
-            cur = db.execute(
-                "INSERT INTO audit_events(created_at,actor,action,target,outcome,details) VALUES(?,?,?,?,?,?)",
-                (
-                    datetime.now(timezone.utc).isoformat(),
-                    actor,
-                    action,
-                    target,
-                    outcome,
-                    json.dumps(details or {}, default=str),
-                ),
-            )
-            if cur.lastrowid is None:
-                raise RuntimeError("SQLite did not return an audit event id")
-            return cur.lastrowid
+        details_dict = details if isinstance(details, dict) else {"value": details}
+        return self.repository.record_audit_event(
+            str(details_dict.get("command", "")),
+            device_ip=target,
+            result=outcome,
+            actor=actor,
+            action=action,
+            outcome=outcome,
+            details=details_dict,
+        )
+
+    def list(self, *, limit: int = 100) -> list[dict[str, Any]]:
+        """Return recent events without exposing secrets from command output."""
+        rows = self.repository.list_audit_events()
+        return rows[-max(1, min(limit, 1000)) :][::-1]

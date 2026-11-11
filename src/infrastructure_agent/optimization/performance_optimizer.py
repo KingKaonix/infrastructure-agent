@@ -5,9 +5,9 @@ import logging
 import json
 from datetime import datetime
 from typing import Dict, List, Any, Optional
-from pathlib import Path
 
 from ..core.config import get_config
+from ..core.state import StateRepository
 from ..deployment.ssh_executor import SSHExecutor, SSHResult
 
 logging.basicConfig(level=logging.INFO)
@@ -38,6 +38,7 @@ class PerformanceOptimizer:
     def __init__(self, config_path: str = "config/agent_config.json", ssh_executor=None):
         self.config = get_config()
         self.ssh_executor = ssh_executor or SSHExecutor()
+        self.state = StateRepository(self.config.get("state", {}).get("database", "state/agent.db"))
         self.check_interval = self.config.get("optimization", {}).get(
             "check_interval", 1800
         )  # 30 minutes
@@ -45,33 +46,37 @@ class PerformanceOptimizer:
         self.memory_threshold = self.config.get("optimization", {}).get("memory_threshold", 85)
         self.disk_threshold = self.config.get("optimization", {}).get("disk_threshold", 80)
         self.optimization_history: List[Dict] = []
+        self._stop_event = asyncio.Event()
         self.load_history()
 
     def load_history(self) -> None:
-        """Load optimization history from file"""
-        history_file = Path("optimization_history.json")
-        if history_file.exists():
-            with open(history_file, "r") as f:
-                data = json.load(f)
-                self.optimization_history = data.get("history", [])
+        """Load optimization history from SQLite."""
+        self.optimization_history = self.state.list_optimization_cycles()
 
     def save_history(self) -> None:
-        """Save optimization history to file"""
-        history_file = Path("optimization_history.json")
-        with open(history_file, "w") as f:
-            json.dump({"history": self.optimization_history}, f, indent=2)
+        """Compatibility hook; cycles are persisted as they complete."""
 
     async def start_periodic_checks(self) -> None:
         """Start the periodic optimization loop"""
         logger.info(f"Starting performance optimization checks every {self.check_interval}s")
 
-        while True:
+        while not self._stop_event.is_set():
             try:
                 await self.run_optimization_cycle()
-                await asyncio.sleep(self.check_interval)
+                try:
+                    await asyncio.wait_for(self._stop_event.wait(), timeout=self.check_interval)
+                except asyncio.TimeoutError:
+                    pass
             except Exception as e:
                 logger.error(f"Error in optimization cycle: {e}")
-                await asyncio.sleep(60)
+                try:
+                    await asyncio.wait_for(self._stop_event.wait(), timeout=60)
+                except asyncio.TimeoutError:
+                    pass
+
+    def stop(self) -> None:
+        """Request a clean stop for the periodic scheduler."""
+        self._stop_event.set()
 
     async def run_optimization_cycle(self) -> None:
         """Run one full optimization cycle across all devices"""
@@ -93,6 +98,15 @@ class PerformanceOptimizer:
                         "device_ip": ip,
                         "result": result.to_dict(),
                     }
+                )
+                self.state.record_optimization_cycle(
+                    ip,
+                    status="success" if result.success else "failure",
+                    metrics={"actions": json.loads(result.stdout).get("actions", [])}
+                    if result.stdout
+                    else {},
+                    recommendations=[],
+                    completed_at=datetime.now().isoformat(),
                 )
 
                 if result.success:

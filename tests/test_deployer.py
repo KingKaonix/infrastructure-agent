@@ -43,7 +43,11 @@ async def test_source_checkout_failure_stops_before_build(tmp_path):
 
     result = await deployer.deploy_to_device(
         "10.0.0.8",
-        {"repository_url": "https://github.com/example/app", "dockerfile": "FROM alpine", "docker_compose": "services: {}"},
+        {
+            "repository_url": "https://github.com/example/app",
+            "dockerfile": "FROM alpine",
+            "docker_compose": "services: {}",
+        },
     )
 
     assert not result.success
@@ -56,7 +60,9 @@ async def test_build_failure_rolls_back_started_resources(tmp_path):
     docker = FakeDockerAdapter({"docker compose build": SSHResult(False, stderr="compile error")})
     deployer = make_deployer(tmp_path, docker)
 
-    result = await deployer.deploy_to_device("10.0.0.8", {"dockerfile": "FROM alpine", "docker_compose": "services: {}"})
+    result = await deployer.deploy_to_device(
+        "10.0.0.8", {"dockerfile": "FROM alpine", "docker_compose": "services: {}"}
+    )
 
     assert not result.success
     assert result.message == "Docker build failed on 10.0.0.8: compile error"
@@ -70,7 +76,9 @@ async def test_health_timeout_rolls_back_and_is_not_success(tmp_path, monkeypatc
     deployer = make_deployer(tmp_path, docker)
     monkeypatch.setitem(deployer.config["deployment"], "health_check_timeout", 0)
 
-    result = await deployer.deploy_to_device("10.0.0.8", {"dockerfile": "FROM alpine", "docker_compose": "services: {}"})
+    result = await deployer.deploy_to_device(
+        "10.0.0.8", {"dockerfile": "FROM alpine", "docker_compose": "services: {}"}
+    )
 
     assert not result.success
     assert not result.health_check
@@ -85,7 +93,9 @@ async def test_success_reports_container_and_healthy_deployment(tmp_path):
     docker = FakeDockerAdapter()
     deployer = make_deployer(tmp_path, docker)
 
-    result = await deployer.deploy_to_device("10.0.0.8", {"dockerfile": "FROM alpine", "docker_compose": "services: {}"})
+    result = await deployer.deploy_to_device(
+        "10.0.0.8", {"dockerfile": "FROM alpine", "docker_compose": "services: {}"}
+    )
 
     assert result.success
     assert result.health_check

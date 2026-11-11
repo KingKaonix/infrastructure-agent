@@ -27,6 +27,7 @@ config/agent_config.json
 
 # Network inventory
 network_inventory.json
+state/
 
 # Temp deploy artifacts
 src/infrastructure_agent/deployment/temp/

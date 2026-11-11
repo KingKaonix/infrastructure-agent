@@ -49,10 +49,7 @@ class StateRepository:
                 )
                 """
             )
-            applied = {
-                row[0]
-                for row in db.execute("SELECT version FROM schema_migrations")
-            }
+            applied = {row[0] for row in db.execute("SELECT version FROM schema_migrations")}
             if 1 not in applied:
                 self._migration_one(db)
                 db.execute(
@@ -125,9 +122,7 @@ class StateRepository:
 
         # Backfill the new timestamp column when upgrading a database written by
         # core.audit.AuditLog.
-        db.execute(
-            "UPDATE audit_events SET timestamp = COALESCE(timestamp, created_at)"
-        )
+        db.execute("UPDATE audit_events SET timestamp = COALESCE(timestamp, created_at)")
 
     @staticmethod
     def _row(row: sqlite3.Row | None) -> dict[str, Any] | None:
@@ -169,7 +164,9 @@ class StateRepository:
 
     def get_device(self, device_id: int) -> dict[str, Any] | None:
         with self._connect() as db:
-            return self._row(db.execute("SELECT * FROM devices WHERE id = ?", (device_id,)).fetchone())
+            return self._row(
+                db.execute("SELECT * FROM devices WHERE id = ?", (device_id,)).fetchone()
+            )
 
     def list_devices(self) -> list[dict[str, Any]]:
         with self._connect() as db:

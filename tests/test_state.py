@@ -25,8 +25,7 @@ def test_repository_creates_schema_and_persists_domain_records(tmp_path):
 
     with sqlite3.connect(tmp_path / "agent.db") as db:
         tables = {
-            row[0]
-            for row in db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+            row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
         }
     assert {"devices", "deployments", "optimization_cycles", "audit_events"} <= tables
 
@@ -41,9 +40,9 @@ def test_device_upsert_and_filters_are_idempotent(tmp_path):
     assert first_id == second_id
     assert len(repository.list_devices()) == 1
     assert repository.get_device(first_id)["hostname"] == "new"
-    assert [row["github_url"] for row in repository.list_deployments(target_device_ip="10.0.0.2")] == [
-        "repo-a"
-    ]
+    assert [
+        row["github_url"] for row in repository.list_deployments(target_device_ip="10.0.0.2")
+    ] == ["repo-a"]
 
 
 def test_migration_preserves_legacy_audit_log(tmp_path):

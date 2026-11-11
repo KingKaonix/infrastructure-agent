@@ -61,7 +61,12 @@ async def test_connect_passes_host_key_and_auth_settings_to_fake_client(tmp_path
     audit = AuditLog(tmp_path / "audit.db")
     executor = SSHExecutor(audit_log=audit, ssh_client=client)
     executor.config["ssh"].update(
-        {"username": "default-user", "key_path": "~/.ssh/deploy_key", "known_hosts": "~/.ssh/known_hosts", "max_retries": 1}
+        {
+            "username": "default-user",
+            "key_path": "~/.ssh/deploy_key",
+            "known_hosts": "~/.ssh/known_hosts",
+            "max_retries": 1,
+        }
     )
 
     assert await executor.connect("10.0.0.8", password="secret")

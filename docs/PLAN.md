@@ -1,5 +1,15 @@
 # Infrastructure Agent — Plan
 
+## Current implementation status
+
+The repository has completed the original Phase 0 foundation and the core slices
+of Phases 1–6: canonical packaging, import-safe lifecycle, OpenAI-compatible
+tool dispatch, SQLite state, audited/policy-controlled SSH, deployment rollback
+tests, bounded discovery, optimization recommendations, CLI commands, and thin
+FastAPI/Telegram adapters. Remaining work is production rollout: live-model and
+LAN acceptance testing, richer discovery backends, Telegram transport wiring,
+and provider plugins.
+
 ## Config decisions (locked)
 
 | Decision | Value |

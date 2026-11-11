@@ -9,6 +9,7 @@ import os
 import uuid
 
 from ..core.config import get_config
+from ..core.state import StateRepository
 from .ssh_executor import SSHResult
 
 logging.basicConfig(level=logging.INFO)
@@ -45,6 +46,7 @@ class Deployer:
     def __init__(self, ssh_executor=None):
         self.config = get_config()
         self.ssh_executor = ssh_executor
+        self.state = StateRepository(self.config.get("state", {}).get("database", "state/agent.db"))
         self.temp_dir = (
             Path(__file__).resolve().parents[3] / "state" / "deployments" / f"deploy_{os.getpid()}"
         )
@@ -426,6 +428,9 @@ CMD ["sh", "-c", "echo 'Hello from Docker'"]
 
         deployment_id = uuid.uuid4().hex[:12]
         remote_dir = f"$HOME/.infrastructure-agent/deployments/{deployment_id}"
+        state_id = self.state.create_deployment(
+            docker_config.get("repository_url", "local-artifact"), device_ip
+        )
         try:
             # Check SSH connection first
             ssh_connected = await self.ssh_executor.connect(device_ip)
@@ -512,19 +517,30 @@ CMD ["sh", "-c", "echo 'Hello from Docker'"]
                     device_ip, f"cd {context} && docker compose down --remove-orphans"
                 )
 
-            return DeploymentResult(
+            result = DeploymentResult(
                 success=start_result.success and health_result.success,
                 message=(
                     "Deployment successful"
                     if start_result.success and health_result.success
                     else health_result.stderr or start_result.stderr
                 ),
-                docker_container_id=(start_result.stdout.strip().split()[0][:12] if start_result.stdout.strip() else ""),
+                docker_container_id=(
+                    start_result.stdout.strip().split()[0][:12]
+                    if start_result.stdout.strip()
+                    else ""
+                ),
                 health_check=health_result.success,
             )
+            self.state.update_deployment(
+                state_id,
+                status="succeeded" if result.success else "failed",
+                container_id=result.docker_container_id or None,
+            )
+            return result
 
         except Exception as e:
             logger.error(f"Deployment error to {device_ip}: {e}")
+            self.state.update_deployment(state_id, status="failed")
             return DeploymentResult(success=False, message=str(e))
 
     async def wait_for_health(

@@ -218,6 +218,59 @@ class SSHExecutor:
             logger.error(f"SSH script execution error on {device_ip}: {e}")
             return SSHResult(success=False, stderr=str(e))
 
+    async def check_connection(self, device_ip: str) -> bool:
+        """Verify an existing connection with a harmless command."""
+        if device_ip not in self.active_connections:
+            return False
+        result = await self.execute_command(device_ip, "true")
+        return result.success
+
+    async def upload_file(self, device_ip: str, local_path: str, remote_path: str) -> SSHResult:
+        """Upload one file over SFTP using the verified SSH connection."""
+        connection = self.active_connections.get(device_ip)
+        if connection is None:
+            return SSHResult(False, stderr=f"Could not establish SSH connection to {device_ip}")
+        audit_id = self.audit.record(
+            "ssh.upload",
+            target=device_ip,
+            details={"local_path": local_path, "remote_path": remote_path},
+        )
+        try:
+            async with connection.start_sftp_client() as sftp:
+                await sftp.put(local_path, remote_path)
+            self.audit.record(
+                "ssh.upload", target=device_ip, outcome="success", details={"audit_id": audit_id}
+            )
+            return SSHResult(True)
+        except Exception as exc:
+            self.audit.record(
+                "ssh.upload",
+                target=device_ip,
+                outcome="failure",
+                details={"audit_id": audit_id, "error": str(exc)},
+            )
+            return SSHResult(False, stderr=str(exc))
+
+    async def upload_directory(self, device_ip: str, local_dir: str, remote_dir: str) -> SSHResult:
+        """Recursively upload a directory over SFTP."""
+        from pathlib import Path
+
+        source = Path(local_dir)
+        if not source.is_dir():
+            return SSHResult(False, stderr=f"Local directory does not exist: {local_dir}")
+        for path in source.rglob("*"):
+            if path.is_file():
+                relative = path.relative_to(source).as_posix()
+                result = await self.execute_command(
+                    device_ip, f"mkdir -p {remote_dir}/{path.parent.relative_to(source).as_posix()}"
+                )
+                if not result.success:
+                    return result
+                result = await self.upload_file(device_ip, str(path), f"{remote_dir}/{relative}")
+                if not result.success:
+                    return result
+        return SSHResult(True)
+
     async def close_connection(self, device_ip: str) -> None:
         """Close SSH connection to a device"""
         if device_ip in self.active_connections:

@@ -98,4 +98,8 @@ chmod 640 "${ENV_FILE}"
 
 systemctl restart infrastructure-agent.service
 echo "Provisioned SSH credentials for ${SERVICE_USER}; system service restarted."
-echo "AI credentials were not changed. Configure ${ENV_FILE} if model review is not yet enabled."
+if [[ "${COPY_OPENCODE}" -eq 1 ]]; then
+  echo "Local OpenCode was provisioned for the system service."
+else
+  echo "AI credentials were not changed. Configure ${ENV_FILE} if model review is not yet enabled."
+fi

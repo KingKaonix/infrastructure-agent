@@ -10,6 +10,7 @@ Group=infrastructure-agent
 WorkingDirectory=/var/lib/infrastructure-agent
 Environment=HOME=/var/lib/infrastructure-agent
 Environment=XDG_STATE_HOME=/var/lib/infrastructure-agent/.local/state
+Environment=XDG_DATA_HOME=/var/lib/infrastructure-agent/.local/share
 EnvironmentFile=-/etc/infrastructure-agent/agent.env
 ExecStart=/var/lib/infrastructure-agent/.venv/bin/infrastructure-agent
 Restart=on-failure

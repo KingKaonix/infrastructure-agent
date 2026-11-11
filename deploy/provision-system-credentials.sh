@@ -84,7 +84,8 @@ if [[ "${COPY_OPENCODE}" -eq 1 ]]; then
     exit 1
   fi
   install -d -o "${SERVICE_USER}" -g "${SERVICE_USER}" "${STATE_DIR}/bin" \
-    "${STATE_DIR}/.local/state/opencode"
+    "${STATE_DIR}/.local/state/opencode" \
+    "${STATE_DIR}/.local/share/opencode/log"
   install -o "${SERVICE_USER}" -g "${SERVICE_USER}" -m 0755 "${OPENCODE_SOURCE}" \
     "${STATE_DIR}/bin/opencode"
   install -o "${SERVICE_USER}" -g "${SERVICE_USER}" -m 0600 "${OPENCODE_SERVICE_SOURCE}" \

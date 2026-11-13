@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "infrastructure-agent-telegram"
+version = "0.1.0"
+description = "Optional Telegram transport plugin for infrastructure-agent"
+requires-python = ">=3.12"
+dependencies = [
+    "infrastructure-agent",
+    "httpx>=0.27,<1",
+]
+
+[project.entry-points."infrastructure_agent.plugins"]
+telegram = "infrastructure_agent_telegram.plugin:plugin"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["infrastructure_agent_telegram*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"

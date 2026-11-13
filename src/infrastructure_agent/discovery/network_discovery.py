@@ -14,6 +14,25 @@ from ..core.state import StateRepository
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+_VIRTUAL_INTERFACE_PREFIXES = (
+    "br-",
+    "cni",
+    "docker",
+    "lxc",
+    "podman",
+    "tap",
+    "tun",
+    "veth",
+    "virbr",
+    "vmnet",
+    "wg",
+)
+
+
+def _is_scannable_interface(ifname: str) -> bool:
+    """Return True when scanning the interface's subnet reaches real hosts."""
+    return ifname != "lo" and not ifname.startswith(_VIRTUAL_INTERFACE_PREFIXES)
+
 
 class DeviceInfo:
     """Information about a discovered device"""
@@ -126,30 +145,22 @@ class NetworkDiscovery:
         for device in self.devices.values():
             device.stale = True
 
-        # Determine which networks to scan. Auto-detection prevents a copied
-        # config from silently scanning a different LAN than the host uses.
         networks_to_scan: list[ipaddress.IPv4Network] = []
-        if auto_detect:
-            networks_to_scan = await self._detect_local_networks()
-        if not networks_to_scan:
+        if scan_range:
             try:
-                if scan_private_only:
-                    # Scan only explicitly configured private subnets.
-                    for subnet in allowed_subnets:
-                        networks_to_scan.append(ipaddress.IPv4Network(subnet))
-                else:
-                    # Scan the full configured range
-                    networks_to_scan.append(ipaddress.IPv4Network(scan_range))
-            except Exception as e:
-                logger.error(f"Invalid network configuration: {e}")
-
-        if not networks_to_scan:
-            if not scan_range:
-                logger.warning(
-                    "No discovery range configured; refusing an unbounded private-network scan"
-                )
+                networks_to_scan = [ipaddress.IPv4Network(scan_range, strict=False)]
+            except ValueError as exc:
+                logger.error("Invalid network.scan_range %r: %s", scan_range, exc)
                 return
-            networks_to_scan = [ipaddress.IPv4Network(scan_range, strict=False)]
+        elif scan_private_only:
+            networks_to_scan = [
+                ipaddress.IPv4Network(subnet, strict=False) for subnet in allowed_subnets
+            ]
+        elif auto_detect:
+            networks_to_scan = await self._detect_local_networks()
+        else:
+            logger.warning("No network.scan_range configured and auto_detect is disabled")
+            return
 
         for network in networks_to_scan:
             await self._scan_network_range(network)
@@ -172,6 +183,8 @@ class NetworkDiscovery:
             for line in stdout.decode().splitlines():
                 fields = line.split()
                 if "inet" not in fields:
+                    continue
+                if not _is_scannable_interface(fields[1]):
                     continue
                 cidr = fields[fields.index("inet") + 1]
                 network = ipaddress.ip_network(cidr, strict=False)

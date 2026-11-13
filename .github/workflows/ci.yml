@@ -18,11 +18,15 @@ jobs:
           cache: pip
       - name: Install package and development tools
         run: python -m pip install --upgrade pip && python -m pip install -e '.[dev]'
+      - name: Install optional Telegram plugin
+        run: python -m pip install --no-deps -e ./plugins/telegram
       - name: Check formatting
-        run: ruff format --check src tests
+        run: ruff format --check src tests plugins
       - name: Lint
-        run: ruff check src tests
+        run: ruff check src tests plugins
       - name: Type check
         run: mypy src
       - name: Test
         run: pytest -q
+      - name: Test plugin package
+        run: python -m pytest -q plugins/telegram

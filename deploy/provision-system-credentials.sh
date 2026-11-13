@@ -77,7 +77,16 @@ set_env INFRA_AGENT_SSH_KEY "${KEY_FILE}"
 set_env INFRA_AGENT_SSH_KNOWN_HOSTS "${KNOWN_HOSTS}"
 
 if [[ "${COPY_OPENCODE}" -eq 1 ]]; then
-  OPENCODE_SOURCE="$(find "${TARGET_HOME}/.nvm/versions/node" -path '*/@opencode/cli/bin/opencode.exe' -type f -perm -111 -print -quit 2>/dev/null || true)"
+  OPENCODE_SOURCE=""
+  for candidate in \
+    "$(find "${TARGET_HOME}/.nvm/versions/node" -path '*/@opencode/cli/bin/opencode*' -type f -perm -111 -print -quit 2>/dev/null || true)" \
+    "${TARGET_HOME}/.opencode/bin/opencode" \
+    "$(command -v opencode 2>/dev/null || true)"; do
+    if [[ -n "${candidate}" && -x "${candidate}" ]]; then
+      OPENCODE_SOURCE="${candidate}"
+      break
+    fi
+  done
   OPENCODE_SERVICE_SOURCE="${TARGET_HOME}/.local/state/opencode/service.json"
   if [[ ! -x "${OPENCODE_SOURCE}" || ! -r "${OPENCODE_SERVICE_SOURCE}" ]]; then
     echo "Could not find the user's OpenCode binary or service metadata." >&2

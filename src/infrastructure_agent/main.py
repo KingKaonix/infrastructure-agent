@@ -24,7 +24,6 @@ def build_parser() -> argparse.ArgumentParser:
     serve = commands.add_parser("serve", help="Run the FastAPI status/control service")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8000)
-    commands.add_parser("telegram", help="Run the allowlisted Telegram bot transport")
     ssh = commands.add_parser("ssh", help="Execute a policy-controlled SSH command")
     ssh.add_argument("target")
     ssh.add_argument("remote_command", nargs=argparse.REMAINDER)
@@ -39,6 +38,17 @@ def build_parser() -> argparse.ArgumentParser:
     approve.add_argument("target", nargs="?")
     audit = commands.add_parser("audit", help="Show recent audit events")
     audit.add_argument("--limit", type=int, default=100)
+    commands.add_parser("plugins", help="List installed plugins")
+
+    from infrastructure_agent.plugins import load_plugins
+
+    for plugin in load_plugins().values():
+        try:
+            plugin.register_cli(commands)
+        except Exception as exc:
+            logging.getLogger(__name__).warning(
+                "Plugin %s failed to register its CLI: %s", plugin.name, exc
+            )
     return parser
 
 
@@ -65,6 +75,8 @@ def _services():
 
 
 async def async_main(argv: Sequence[str] | None = None) -> int:
+    from infrastructure_agent.plugins import find_plugin
+
     args = build_parser().parse_args(argv)
     config, audit, discovery, ssh, deployer, optimizer = _services()
     logging.basicConfig(
@@ -101,16 +113,6 @@ async def async_main(argv: Sequence[str] | None = None) -> int:
                 )
             )
             await server.serve()
-        elif args.command == "telegram":
-            import os
-            from infrastructure_agent.telegram import TelegramBotTransport, TelegramCommandHandler
-
-            handler = TelegramCommandHandler(
-                discovery=discovery, ssh=ssh, deployer=deployer, optimizer=optimizer
-            )
-            token = os.getenv("INFRA_TELEGRAM_BOT_TOKEN", "")
-            allowed = config.get("telegram.allowed_chat_ids", [])
-            await TelegramBotTransport(token, handler, allowed_chat_ids=allowed).run()
         elif args.command == "ssh":
             if not args.remote_command:
                 raise SystemExit("ssh requires a command")
@@ -139,6 +141,39 @@ async def async_main(argv: Sequence[str] | None = None) -> int:
             print(json.dumps({"approved": True, "event_id": event_id}))
         elif args.command == "audit":
             print(json.dumps(audit.list(limit=args.limit), indent=2))
+        elif args.command == "plugins":
+            from infrastructure_agent.plugins import load_plugins
+
+            print(
+                json.dumps(
+                    {
+                        "plugins": [
+                            {
+                                "name": plugin.name,
+                                "description": plugin.description,
+                                "commands": list(plugin.commands),
+                            }
+                            for plugin in load_plugins().values()
+                        ]
+                    },
+                    indent=2,
+                )
+            )
+        elif args.command and (plugin := find_plugin(args.command)) is not None:
+            from infrastructure_agent.plugins import ServiceContext
+
+            return await plugin.run(
+                args.command,
+                args,
+                ServiceContext(
+                    config=config,
+                    audit=audit,
+                    discovery=discovery,
+                    ssh=ssh,
+                    deployer=deployer,
+                    optimizer=optimizer,
+                ),
+            )
         elif args.interactive or args.request:
             from infrastructure_agent.ai_layer.ai_reasoning import AIReasoningLayer
 

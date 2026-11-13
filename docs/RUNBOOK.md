@@ -6,6 +6,12 @@ managed devices.
 
 ## Install as a service
 
+Pick **one** install mode. Enabling both the user service and the system service
+runs two daemons that scan the same LAN, duplicate audit writes, and multiply
+SSH and model calls. Check with `systemctl is-active infrastructure-agent` and
+`systemctl --user is-active infrastructure-agent`; exactly one must report
+`active`.
+
 For a non-root install in a user session:
 
 ```bash
@@ -55,8 +61,17 @@ sudo deploy/provision-system-credentials.sh 192.168.12.229 --no-local-opencode
 ```
 
 Before starting, edit `/etc/infrastructure-agent/agent.env`, provision the SSH
-key and `known_hosts`, and set an explicit LAN CIDR in the agent config. Do not
-put API keys or passwords in the JSON config or commit them to Git.
+key and `known_hosts`, and create `/var/lib/infrastructure-agent/agent_config.json`
+with an explicit `network.scan_range`. The installer creates the environment
+file but not the JSON config; without it the service runs on defaults and does
+not record an explicit LAN range. Do not put API keys or passwords in the JSON
+config or commit them to Git.
+
+The service account reads its own config, so repository edits under
+`config/agent_config.json` do not affect an installed system service. When the
+package changes, rebuild and reinstall it into the service virtual environment
+with `uv build --wheel` and `uv pip install --python
+/var/lib/infrastructure-agent/.venv/bin/python --no-deps --force-reinstall`.
 
 Run `infrastructure-agent doctor` before enabling the service. It reports the
 exact missing host prerequisites without performing network or remote actions.
@@ -65,6 +80,7 @@ exact missing host prerequisites without performing network or remote actions.
 
 ```bash
 systemctl status infrastructure-agent
+systemctl --user status infrastructure-agent   # must be inactive
 infrastructure-agent status
 infrastructure-agent audit --limit 20
 journalctl -u infrastructure-agent -f
@@ -98,10 +114,18 @@ authentication and TLS at the proxy layer.
 
 ## Optional Telegram transport
 
-Set `INFRA_TELEGRAM_BOT_TOKEN` and configure `telegram.allowed_chat_ids` with
-the numeric operator chat IDs, then run `infrastructure-agent telegram`. An
-empty allowlist accepts any chat that can reach the bot, so an allowlist is
-strongly recommended.
+The transport is a separate plugin package, not part of the core install:
+
+```bash
+uv pip install --no-deps -e ./plugins/telegram
+systemctl --user restart infrastructure-agent   # or: sudo systemctl restart infrastructure-agent
+```
+
+Set `INFRA_TELEGRAM_BOT_TOKEN` in the service environment file and configure
+`telegram.allowed_chat_ids` with the numeric operator chat IDs. An empty
+allowlist accepts any chat that can reach the bot, so an allowlist is strongly
+recommended. Run `infrastructure-agent plugins` to confirm the plugin is
+discovered; `infrastructure-agent telegram` starts polling.
 
 ## First acceptance test
 

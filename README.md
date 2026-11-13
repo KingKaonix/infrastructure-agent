@@ -2,7 +2,7 @@
 
 Infrastructure Agent is a Python 3.12+ CLI for safely managing Docker workloads and SSH-accessible devices on a LAN. It combines bounded network discovery, policy-controlled remote execution, repository analysis, deployment health checks, optimization recommendations, and an append-only SQLite audit trail.
 
-> **Status:** early operational release. Packaging, the CLI lifecycle, safety boundaries, deployment pipeline, SQLite state, OpenAI-compatible tool dispatch, and validation suite are working. Telegram transport and cloud plugins remain planned.
+> **Status:** early operational release. Packaging, the CLI lifecycle, safety boundaries, deployment pipeline, SQLite state, OpenAI-compatible tool dispatch, and validation suite are working. The Telegram transport ships as an optional plugin package.
 
 ## What is implemented
 
@@ -49,8 +49,11 @@ infrastructure-agent deploy https://github.com/example/app 192.168.1.20
 infrastructure-agent optimize 192.168.1.20
 infrastructure-agent audit --limit 25
 infrastructure-agent serve --host 127.0.0.1 --port 8000
-infrastructure-agent telegram
+infrastructure-agent plugins
 ```
+
+`telegram` is not part of the core install. It appears in `--help` only after
+installing the optional plugin described below.
 
 The AI reasoning adapter is optional at runtime. Configure an OpenAI-compatible endpoint through environment variables before using natural-language requests:
 
@@ -85,14 +88,33 @@ Important defaults:
 
 Never commit API keys, passwords, private keys, or other credentials.
 
+## Optional plugins
+
+Interfaces that need extra dependencies ship as separate packages that register
+through the `infrastructure_agent.plugins` entry-point group. The core CLI never
+imports them, so a bare install stays dependency-light.
+
+```bash
+uv pip install --no-deps -e ./plugins/telegram
+infrastructure-agent plugins
+export INFRA_TELEGRAM_BOT_TOKEN="..."
+infrastructure-agent telegram
+```
+
+Installed plugins add their commands to `--help`. A plugin that fails to import
+is logged and skipped; it cannot prevent the core CLI from starting. Removing the
+package removes the command again.
+
 ## Development
 
 ```bash
 uv pip install -e '.[dev]'
-ruff format --check src tests
-ruff check src tests
+uv pip install --no-deps -e ./plugins/telegram
+ruff format --check src tests plugins
+ruff check src tests plugins
 mypy src
 pytest -q
+pytest -q plugins/telegram
 ```
 
 Tests use fake/local boundaries and do not require a real LAN, SSH host, Docker daemon, GitHub repository, or model endpoint.
@@ -119,11 +141,15 @@ The thin FastAPI adapter is created with `infrastructure_agent.api.create_app()`
 - `POST /ssh` with `{ "target", "command", "approved" }`
 - `POST /deploy` with `{ "repository", "target" }`
 
-`infrastructure_agent.telegram.TelegramCommandHandler` provides the shared command handling for `/status`, `/discover`, `/ssh`, `/deploy`, and `/optimize`. A Telegram transport can be attached without duplicating service or policy logic. See [docs/RUNBOOK.md](docs/RUNBOOK.md) for continuous-host installation.
+`plugins/telegram` provides `infrastructure_agent_telegram.TelegramCommandHandler`
+and the allowlisted long-polling transport behind `infrastructure-agent telegram`.
+Both reuse the core discovery, SSH, deployment, and optimization services, so
+command policy and audit behavior stay identical to the CLI. See
+[docs/RUNBOOK.md](docs/RUNBOOK.md) for continuous-host installation.
 
 ## Roadmap
 
-1. Add a real Telegram webhook/polling transport and authentication.
+1. Publish the plugin contract as a documented, versioned interface for cloud providers.
 2. Add richer discovery backends (ARP, mDNS, and optional nmap adapters).
 3. Run live model, SSH, Docker, and LAN acceptance tests on a disposable lab device.
 4. Add cloud/provider plugins after the LAN inventory contract is stable.
